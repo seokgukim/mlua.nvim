@@ -46,6 +46,10 @@ local function setup_treesitter()
 		filetype = "mlua",
 	}
 
+	-- Add queries path for Tree-sitter to find highlights.scm
+	local queries_path = M.config.treesitter.parser_path .. "/queries"
+	vim.opt.runtimepath:append(M.config.treesitter.parser_path)
+
 	-- Verify parser is available
 	local parser_path = vim.fn.stdpath("data") .. "/site/parser/mlua.so"
 	if vim.fn.filereadable(parser_path) == 1 then
@@ -181,5 +185,41 @@ end
 
 -- Export debug utilities
 M.debug = require("mlua.debug")
+
+-- Debug function to check Tree-sitter status
+function M.check_treesitter()
+	local bufnr = vim.api.nvim_get_current_buf()
+	local info = {
+		filetype = vim.bo[bufnr].filetype,
+		parser_installed = vim.fn.filereadable(vim.fn.stdpath("data") .. "/site/parser/mlua.so") == 1,
+		highlighter_active = vim.treesitter.highlighter.active[bufnr] ~= nil,
+		parser_path = M.config.treesitter.parser_path,
+		queries_path = M.config.treesitter.parser_path .. "/queries",
+	}
+	
+	-- Try to get parser
+	local ok, parser = pcall(vim.treesitter.get_parser, bufnr, "mlua")
+	info.parser_available = ok
+	
+	-- Try to get query
+	local query_ok, query = pcall(vim.treesitter.query.get, "mlua", "highlights")
+	info.query_available = query_ok
+	if query_ok and query then
+		info.query_captures = #query.captures
+	end
+	
+	-- Print info
+	print("=== mLua Tree-sitter Status ===")
+	for k, v in pairs(info) do
+		print(string.format("%s: %s", k, vim.inspect(v)))
+	end
+	
+	-- Try to start Tree-sitter
+	if info.filetype == "mlua" and info.parser_installed then
+		print("\nAttempting to start Tree-sitter...")
+		local start_ok, err = pcall(vim.treesitter.start, bufnr, "mlua")
+		print("Start result:", start_ok, err)
+	end
+end
 
 return M
