@@ -1,0 +1,213 @@
+*mlua.nvim.txt*        For Neovim >= 0.9.0        Last change: 2025 November 08
+
+==============================================================================
+Table of Contents                                   *mlua.nvim-table-of-contents*
+
+1. Introduction                                           |mlua.nvim-intro|
+2. Requirements                                     |mlua.nvim-requirements|
+3. Installation                                     |mlua.nvim-installation|
+4. Configuration                                   |mlua.nvim-configuration|
+5. Commands                                             |mlua.nvim-commands|
+6. Keymaps                                               |mlua.nvim-keymaps|
+
+==============================================================================
+1. Introduction                                           *mlua.nvim-intro*
+
+mLua.nvim is a Neovim plugin providing comprehensive language support for
+mLua, the scripting language for MapleStory Worlds.
+
+Features:
+  • LSP integration for autocomplete, diagnostics, and navigation
+  • Tree-sitter support for advanced syntax highlighting
+  • Fallback Vim syntax highlighting
+  • Automatic .mlua file detection
+
+Project Repository:
+  https://github.com/seokgukim/mlua.nvim
+
+Related Projects:
+  • Tree-sitter Parser: https://github.com/seokgukim/tree-sitter-mlua
+  • Official Docs: https://maplestoryworlds-creators.nexon.com/en/docs
+
+==============================================================================
+2. Requirements                                     *mlua.nvim-requirements*
+
+Minimum:
+  • Neovim >= 0.9.0
+
+The plugin will automatically install the mLua LSP server when you run
+|:MluaInstall|.
+
+Optional Dependencies:
+  • nvim-treesitter: For Tree-sitter support
+  • nvim-cmp + cmp-nvim-lsp: For enhanced autocompletion
+  • tree-sitter-mlua: For syntax highlighting parser
+
+==============================================================================
+3. Installation                                     *mlua.nvim-installation*
+
+Using lazy.nvim: >lua
+
+  {
+    "seokgukim/mlua.nvim",
+    dependencies = {
+      "nvim-treesitter/nvim-treesitter",  -- optional
+      "hrsh7th/nvim-cmp",                 -- optional
+      "hrsh7th/cmp-nvim-lsp",             -- optional
+    },
+    ft = "mlua",
+    config = function()
+      require("mlua").setup()
+    end,
+  }
+<
+
+After installation, install the LSP server: >vim
+
+  :MluaInstall
+<
+
+For Tree-sitter support, install the parser: >bash
+
+  git clone https://github.com/seokgukim/tree-sitter-mlua.git ~/tree-sitter-mlua
+  cd ~/tree-sitter-mlua
+  npm install
+  npx tree-sitter generate
+  mkdir -p ~/.local/share/nvim/site/parser
+  cc -o ~/.local/share/nvim/site/parser/mlua.so -I./src src/parser.c -shared -Os -lstdc++ -fPIC
+<
+
+==============================================================================
+4. Configuration                                   *mlua.nvim-configuration*
+
+                                                          *mlua.nvim.setup()*
+setup({opts})
+    Configure mLua.nvim with the following options:
+
+    Parameters: ~
+      {opts}  (table|nil) Configuration options
+
+    Fields: ~
+      {lsp}         (table)   LSP configuration
+        {enabled}     (boolean) Enable LSP integration (default: true)
+        {cmd}         (table)   LSP command (auto-detected if nil)
+        {capabilities}(table)   LSP capabilities (uses nvim-cmp if available)
+        {on_attach}   (function) Custom on_attach callback
+
+      {treesitter}  (table)   Tree-sitter configuration
+        {enabled}     (boolean) Enable Tree-sitter (default: true)
+        {parser_path} (string)  Path to tree-sitter-mlua repo
+                                (default: "~/tree-sitter-mlua")
+
+    Example: >lua
+
+      require("mlua").setup({
+        lsp = {
+          enabled = true,
+          on_attach = function(client, bufnr)
+            print("mLua LSP attached!")
+          end,
+        },
+        treesitter = {
+          enabled = true,
+          parser_path = vim.fn.expand("~/tree-sitter-mlua"),
+        },
+      })
+<
+
+    Minimal setup: >lua
+
+      require("mlua").setup()
+<
+
+==============================================================================
+5. Commands                                             *mlua.nvim-commands*
+
+LSP Management Commands ~
+
+:MluaInstall                                                    *:MluaInstall*
+    Install the mLua language server to ~/.local/share/nvim/mlua-lsp
+
+:MluaUpdate                                                      *:MluaUpdate*
+    Update the mLua language server to the latest version
+
+:MluaCheckVersion                                          *:MluaCheckVersion*
+    Check the installed LSP version
+
+:MluaUninstall                                                *:MluaUninstall*
+    Uninstall the mLua language server
+
+:MluaRestart                                                    *:MluaRestart*
+    Restart the mLua language server for the current buffer
+
+Debug Commands ~
+
+:MluaDebug                                                        *:MluaDebug*
+    Show mLua LSP debug information and status
+
+:MluaLogs                                                          *:MluaLogs*
+    Open the LSP log file in a new buffer
+
+:MluaCapabilities                                          *:MluaCapabilities*
+    Display the full LSP server capabilities
+
+Buffer-local LSP Commands ~
+
+These commands are available when the LSP is attached to a buffer:
+
+:MluaDefinition                                              *:MluaDefinition*
+    Go to the definition of the symbol under cursor
+
+:MluaReferences                                              *:MluaReferences*
+    Find all references to the symbol under cursor
+
+:MluaHover                                                        *:MluaHover*
+    Show hover information for the symbol under cursor
+
+:MluaRename                                                      *:MluaRename*
+    Rename the symbol under cursor
+
+:MluaFormat                                                      *:MluaFormat*
+    Format the current document
+
+:MluaToggleInlayHints                                  *:MluaToggleInlayHints*
+    Toggle inlay hints on/off for the current buffer
+
+
+==============================================================================
+6. Keymaps                                               *mlua.nvim-keymaps*
+
+The plugin does not set any keymaps by default. You can create your own
+keybindings using the commands above.
+
+Example configuration: >lua
+
+  vim.api.nvim_create_autocmd("LspAttach", {
+    callback = function(args)
+      local client = vim.lsp.get_client_by_id(args.data.client_id)
+      if client and client.name == "mlua" then
+        local bufnr = args.buf
+        local opts = { buffer = bufnr, noremap = true, silent = true }
+        
+        -- Navigation
+        vim.keymap.set("n", "gd", "<cmd>MluaDefinition<cr>", opts)
+        vim.keymap.set("n", "gD", "<cmd>MluaDeclaration<cr>", opts)
+        vim.keymap.set("n", "gr", "<cmd>MluaReferences<cr>", opts)
+        vim.keymap.set("n", "gi", "<cmd>MluaImplementation<cr>", opts)
+        vim.keymap.set("n", "<leader>D", "<cmd>MluaTypeDefinition<cr>", opts)
+        
+        -- Information
+        vim.keymap.set("n", "K", "<cmd>MluaHover<cr>", opts)
+        vim.keymap.set("n", "<C-k>", "<cmd>MluaSignatureHelp<cr>", opts)
+        
+        -- Actions
+        vim.keymap.set("n", "<leader>rn", "<cmd>MluaRename<cr>", opts)
+        vim.keymap.set("n", "<leader>ca", "<cmd>MluaCodeAction<cr>", opts)
+        vim.keymap.set("n", "<leader>f", "<cmd>MluaFormat<cr>", opts)
+        vim.keymap.set("n", "<leader>ih", "<cmd>MluaToggleInlayHints<cr>", opts)
+      end
+    end,
+  })
+<
+
+==============================================================================
