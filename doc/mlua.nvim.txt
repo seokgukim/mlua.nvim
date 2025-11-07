@@ -87,6 +87,8 @@ For Tree-sitter support, install the parser: >bash
   ln -sf ~/tree-sitter-mlua/queries/highlights.scm ~/.local/share/nvim/site/queries/mlua/highlights.scm
 <
 
+or, just do use :MluaTSInstall
+
 ==============================================================================
 4. Configuration                                   *mlua.nvim-configuration*
 
@@ -146,6 +148,11 @@ LSP Management Commands ~
 
 :MluaUninstall                                                *:MluaUninstall*
     Uninstall the mLua language server
+
+:MluaTSInstall                                                *:MluaTSInstall*
+    Automatically install the Tree-sitter parser for mLua
+    This will clone the repository, generate, and compile the parser
+    Requires: git, Node.js/npm, and a C compiler
 
 :MluaRestart                                                    *:MluaRestart*
     Restart the mLua language server for the current buffer

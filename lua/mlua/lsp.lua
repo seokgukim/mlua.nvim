@@ -731,10 +731,125 @@ function M.setup(opts)
   vim.notify("mLua LSP v" .. installed_version .. " configured", vim.log.levels.INFO)
 end
 
+-- Install Tree-sitter parser and queries
+function M.install_treesitter()
+  local parser_dir = vim.fn.expand("~/tree-sitter-mlua")
+  local parser_path = vim.fn.stdpath("data") .. "/site/parser/mlua.so"
+  local queries_dir = vim.fn.stdpath("data") .. "/site/queries/mlua"
+  
+  -- Check if parser repo exists, if not, clone it
+  if vim.fn.isdirectory(parser_dir) == 0 then
+    vim.notify("Cloning tree-sitter-mlua repository...", vim.log.levels.INFO)
+    local clone_cmd = string.format(
+      'git clone https://github.com/seokgukim/tree-sitter-mlua.git "%s" 2>&1',
+      parser_dir
+    )
+    local handle = io.popen(clone_cmd)
+    local clone_output = handle:read("*a")
+    local success = handle:close()
+    
+    if not success then
+      vim.notify("Failed to clone repository:\n" .. clone_output, vim.log.levels.ERROR)
+      return false
+    end
+    vim.notify("✓ Repository cloned successfully", vim.log.levels.INFO)
+  end
+
+  vim.notify("Setting up Tree-sitter parser for mLua...", vim.log.levels.INFO)
+
+  -- Check if npm is installed
+  local npm_check = io.popen("command -v npm 2>&1")
+  local npm_path = npm_check:read("*a")
+  npm_check:close()
+  
+  if npm_path == "" then
+    vim.notify("Error: npm not found. Please install Node.js and npm first.", vim.log.levels.ERROR)
+    return false
+  end
+
+  -- Install npm dependencies
+  vim.notify("Installing npm dependencies...", vim.log.levels.INFO)
+  local npm_install_cmd = string.format('cd "%s" && npm install 2>&1', parser_dir)
+  local npm_handle = io.popen(npm_install_cmd)
+  local npm_output = npm_handle:read("*a")
+  local npm_success = npm_handle:close()
+  
+  if not npm_success then
+    vim.notify("Failed to install npm dependencies:\n" .. npm_output, vim.log.levels.ERROR)
+    return false
+  end
+  vim.notify("✓ Dependencies installed", vim.log.levels.INFO)
+
+  -- Generate parser
+  vim.notify("Generating parser...", vim.log.levels.INFO)
+  local generate_cmd = string.format('cd "%s" && npx tree-sitter generate 2>&1', parser_dir)
+  local gen_handle = io.popen(generate_cmd)
+  local gen_output = gen_handle:read("*a")
+  local gen_success = gen_handle:close()
+  
+  if not gen_success then
+    vim.notify("Failed to generate parser:\n" .. gen_output, vim.log.levels.ERROR)
+    return false
+  end
+  vim.notify("✓ Parser generated", vim.log.levels.INFO)
+
+  -- Compile parser
+  vim.notify("Compiling parser...", vim.log.levels.INFO)
+  vim.fn.mkdir(vim.fn.stdpath("data") .. "/site/parser", "p")
+  local compile_cmd = string.format(
+    'cd "%s" && cc -o "%s" -I./src src/parser.c -shared -Os -lstdc++ -fPIC 2>&1',
+    parser_dir,
+    parser_path
+  )
+  
+  local compile_handle = io.popen(compile_cmd)
+  local compile_output = compile_handle:read("*a")
+  local compile_success = compile_handle:close()
+
+  if not compile_success or compile_output:match("error") then
+    vim.notify("Failed to compile parser:\n" .. compile_output, vim.log.levels.ERROR)
+    return false
+  end
+  vim.notify("✓ Parser compiled", vim.log.levels.INFO)
+
+  -- Create queries directory and symlink
+  vim.notify("Installing highlight queries...", vim.log.levels.INFO)
+  vim.fn.mkdir(queries_dir, "p")
+  local highlights_src = parser_dir .. "/queries/highlights.scm"
+  local highlights_dst = queries_dir .. "/highlights.scm"
+  
+  -- Remove existing symlink/file
+  if vim.fn.filereadable(highlights_dst) == 1 or vim.fn.isdirectory(highlights_dst) == 1 then
+    os.remove(highlights_dst)
+  end
+  
+  -- Create symlink
+  local symlink_cmd
+  if vim.fn.has("win32") == 1 then
+    symlink_cmd = string.format('mklink "%s" "%s"', highlights_dst, highlights_src)
+  else
+    symlink_cmd = string.format('ln -sf "%s" "%s"', highlights_src, highlights_dst)
+  end
+  
+  os.execute(symlink_cmd)
+  vim.notify("✓ Queries installed", vim.log.levels.INFO)
+
+  vim.notify("", vim.log.levels.INFO)
+  vim.notify("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", vim.log.levels.INFO)
+  vim.notify("✓ Tree-sitter setup complete!", vim.log.levels.INFO)
+  vim.notify("  Parser: " .. parser_path, vim.log.levels.INFO)
+  vim.notify("  Queries: " .. highlights_dst, vim.log.levels.INFO)
+  vim.notify("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", vim.log.levels.INFO)
+  vim.notify("Restart Neovim to activate Tree-sitter highlighting.", vim.log.levels.WARN)
+  
+  return true
+end
+
 vim.api.nvim_create_user_command('MluaInstall', M.download, { desc = 'Install mLua language server' })
 vim.api.nvim_create_user_command('MluaUpdate', M.update, { desc = 'Update mLua language server' })
 vim.api.nvim_create_user_command('MluaCheckVersion', M.check_version, { desc = 'Check mLua version' })
 vim.api.nvim_create_user_command('MluaUninstall', M.uninstall, { desc = 'Uninstall mLua language server' })
+vim.api.nvim_create_user_command('MluaTSInstall', M.install_treesitter, { desc = 'Install Tree-sitter parser for mLua' })
 vim.api.nvim_create_user_command('MluaRestart', function()
   vim.lsp.stop_client(vim.lsp.get_clients({ name = 'mlua' }))
   vim.defer_fn(function()

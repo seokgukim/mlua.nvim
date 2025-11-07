@@ -59,25 +59,25 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 
 ## Tree-sitter Parser Installation
 
-If you want Tree-sitter support, you need to install the [tree-sitter-mlua](https://github.com/seokgukim/tree-sitter-mlua) parser:
+For enhanced syntax highlighting with Tree-sitter, simply run:
 
-```bash
-# Clone the parser repository
-git clone https://github.com/seokgukim/tree-sitter-mlua.git ~/tree-sitter-mlua
-
-# Generate and compile the parser
-cd ~/tree-sitter-mlua
-npm install  # or: yarn
-npx tree-sitter generate
-
-# Compile and install the parser
-mkdir -p ~/.local/share/nvim/site/parser
-cc -o ~/.local/share/nvim/site/parser/mlua.so -I./src src/parser.c -shared -Os -lstdc++ -fPIC
-
-# Install the highlight queries
-mkdir -p ~/.local/share/nvim/site/queries/mlua
-ln -sf ~/tree-sitter-mlua/queries/highlights.scm ~/.local/share/nvim/site/queries/mlua/highlights.scm
+```vim
+:MluaTSInstall
 ```
+
+This command will automatically:
+- Clone the [tree-sitter-mlua](https://github.com/seokgukim/tree-sitter-mlua) repository
+- Install npm dependencies
+- Generate the parser
+- Compile the parser for your system
+- Set up highlight queries
+
+**Requirements:**
+- Git
+- Node.js and npm
+- C compiler (gcc or clang)
+
+**Note:** Restart Neovim after installation to activate Tree-sitter highlighting.
 
 ## Configuration
 
@@ -133,6 +133,7 @@ The plugin provides commands for managing the mLua language server:
 | `:MluaUpdate` | Update mLua language server |
 | `:MluaCheckVersion` | Check installed LSP version |
 | `:MluaUninstall` | Uninstall mLua language server |
+| `:MluaTSInstall` | Automatically clone, generate, and compile Tree-sitter parser |
 | `:MluaRestart` | Restart the language server |
 | `:MluaDebug` | Show LSP debug information |
 | `:MluaLogs` | Show LSP logs |
