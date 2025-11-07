@@ -16,6 +16,14 @@ Table of Contents                                   *mlua.nvim-table-of-contents
 mLua.nvim is a Neovim plugin providing comprehensive language support for
 mLua, the scripting language for MapleStory Worlds.
 
+Originally, it was a vscode extension, I managed to run it in neovim.
+Some features may not work as it does on vscode.
+
+This plugin uses compiled language server as whole, and it take times to
+initially open a project or a .mlua file.
+
+You may use bun as JavaScript runtime or use ripgrep to enhance the performance.
+
 Features:
   • LSP integration for autocomplete, diagnostics, and navigation
   • Tree-sitter support for advanced syntax highlighting

@@ -15,6 +15,8 @@ This is a wrapper plugin for the original mLua extension by MapleStory Worlds te
 
 Visit the MapleStory Worlds [mLua documentation](https://maplestoryworlds-creators.nexon.com/en/docs?postId=1287) for language details.
 
+For more information, see the `./doc/mlua.nvim.txt` file.
+
 
 ## Features
 
