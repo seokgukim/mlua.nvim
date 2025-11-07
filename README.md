@@ -70,9 +70,13 @@ cd ~/tree-sitter-mlua
 npm install  # or: yarn
 npx tree-sitter generate
 
-# Compile and install
+# Compile and install the parser
 mkdir -p ~/.local/share/nvim/site/parser
 cc -o ~/.local/share/nvim/site/parser/mlua.so -I./src src/parser.c -shared -Os -lstdc++ -fPIC
+
+# Install the highlight queries
+mkdir -p ~/.local/share/nvim/site/queries/mlua
+ln -sf ~/tree-sitter-mlua/queries/highlights.scm ~/.local/share/nvim/site/queries/mlua/highlights.scm
 ```
 
 ## Configuration

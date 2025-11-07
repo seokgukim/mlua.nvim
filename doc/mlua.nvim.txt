@@ -83,6 +83,8 @@ For Tree-sitter support, install the parser: >bash
   npx tree-sitter generate
   mkdir -p ~/.local/share/nvim/site/parser
   cc -o ~/.local/share/nvim/site/parser/mlua.so -I./src src/parser.c -shared -Os -lstdc++ -fPIC
+  mkdir -p ~/.local/share/nvim/site/queries/mlua
+  ln -sf ~/tree-sitter-mlua/queries/highlights.scm ~/.local/share/nvim/site/queries/mlua/highlights.scm
 <
 
 ==============================================================================
