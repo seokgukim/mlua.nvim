@@ -336,7 +336,7 @@ function M.get_installed_version()
 end
 
 function M.download(version)
-  version = version or M.get_latest_version()
+  version = M.get_latest_version() or "1.1.4"
 
   if not version then
     vim.notify("Error: Could not fetch version", vim.log.levels.ERROR)

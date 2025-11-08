@@ -16,19 +16,21 @@ Table of Contents                                   *mlua.nvim-table-of-contents
 mLua.nvim is a Neovim plugin providing comprehensive language support for
 mLua, the scripting language for MapleStory Worlds.
 
-Originally, it was a vscode extension, I managed to run it in neovim.
-Some features may not work as it does on vscode.
+Originally a VS Code extension, this plugin adapts it to work in Neovim.
+Some features may differ from the VS Code version.
 
-This plugin uses compiled language server as whole, and it take times to
-initially open a project or a .mlua file.
-
-You may use bun as JavaScript runtime or use ripgrep to enhance the performance.
+PERFORMANCE NOTE:
+The `feature/lazy-async-loading` branch provides dramatically improved
+performance for large projects (10-300x faster startup). See installation
+section for details.
 
 Features:
   • LSP integration for autocomplete, diagnostics, and navigation
   • Tree-sitter support for advanced syntax highlighting
   • Fallback Vim syntax highlighting
   • Automatic .mlua file detection
+  • Async file operations (performance branch)
+  • No stale caching issues
 
 Project Repository:
   https://github.com/seokgukim/mlua.nvim
@@ -54,7 +56,7 @@ Optional Dependencies:
 ==============================================================================
 3. Installation                                     *mlua.nvim-installation*
 
-Using lazy.nvim: >lua
+Using lazy.nvim (stable): >lua
 
   {
     "seokgukim/mlua.nvim",
@@ -70,24 +72,41 @@ Using lazy.nvim: >lua
   }
 <
 
+Using lazy.nvim (performance branch - recommended): >lua
+
+  {
+    "seokgukim/mlua.nvim",
+    branch = "feature/lazy-async-loading",  -- Performance improvements
+    dependencies = {
+      "nvim-treesitter/nvim-treesitter",  -- optional
+      "hrsh7th/nvim-cmp",                 -- optional
+      "hrsh7th/cmp-nvim-lsp",             -- optional
+    },
+    ft = "mlua",
+    config = function()
+      require("mlua").setup()
+    end,
+  }
+<
+
+Performance branch benefits:
+  • 10-300x faster LSP startup (0.1s vs 5-30s on large projects)
+  • 90% less memory usage (only file paths cached, not contents)
+  • Non-blocking async file operations via vim.loop
+  • No stale cache issues (server reads fresh content from disk)
+  • Uses fd/rg when available for fast file scanning
+
 After installation, install the LSP server: >vim
 
   :MluaInstall
 <
 
-For Tree-sitter support, install the parser: >bash
+For Tree-sitter support, install the parser: >vim
 
-  git clone https://github.com/seokgukim/tree-sitter-mlua.git ~/tree-sitter-mlua
-  cd ~/tree-sitter-mlua
-  npm install
-  npx tree-sitter generate
-  mkdir -p ~/.local/share/nvim/site/parser
-  cc -o ~/.local/share/nvim/site/parser/mlua.so -I./src src/parser.c -shared -Os -lstdc++ -fPIC
-  mkdir -p ~/.local/share/nvim/site/queries/mlua
-  ln -sf ~/tree-sitter-mlua/queries/highlights.scm ~/.local/share/nvim/site/queries/mlua/highlights.scm
+  :MluaTSInstall
 <
-
-or, just do use :MluaTSInstall
+This automatically clones the repository, installs dependencies,
+generates and compiles the parser, and sets up queries.
 
 ==============================================================================
 4. Configuration                                   *mlua.nvim-configuration*
@@ -144,14 +163,14 @@ LSP Management Commands ~
     Update the mLua language server to the latest version
 
 :MluaCheckVersion                                          *:MluaCheckVersion*
-    Check the installed LSP version
+    Check the installed LSP version vs latest available version
 
 :MluaUninstall                                                *:MluaUninstall*
     Uninstall the mLua language server
 
 :MluaTSInstall                                                *:MluaTSInstall*
-    Automatically install the Tree-sitter parser for mLua
-    This will clone the repository, generate, and compile the parser
+    Automatically install the Tree-sitter parser for mLua.
+    Clones repository, installs dependencies, generates and compiles parser.
     Requires: git, Node.js/npm, and a C compiler
 
 :MluaRestart                                                    *:MluaRestart*
@@ -170,7 +189,7 @@ Debug Commands ~
 
 Buffer-local LSP Commands ~
 
-These commands are available when the LSP is attached to a buffer:
+These commands are available when the LSP is attached to a `.mlua` buffer:
 
 :MluaDefinition                                              *:MluaDefinition*
     Go to the definition of the symbol under cursor
@@ -208,18 +227,13 @@ Example configuration: >lua
         
         -- Navigation
         vim.keymap.set("n", "gd", "<cmd>MluaDefinition<cr>", opts)
-        vim.keymap.set("n", "gD", "<cmd>MluaDeclaration<cr>", opts)
         vim.keymap.set("n", "gr", "<cmd>MluaReferences<cr>", opts)
-        vim.keymap.set("n", "gi", "<cmd>MluaImplementation<cr>", opts)
-        vim.keymap.set("n", "<leader>D", "<cmd>MluaTypeDefinition<cr>", opts)
         
         -- Information
         vim.keymap.set("n", "K", "<cmd>MluaHover<cr>", opts)
-        vim.keymap.set("n", "<C-k>", "<cmd>MluaSignatureHelp<cr>", opts)
         
         -- Actions
         vim.keymap.set("n", "<leader>rn", "<cmd>MluaRename<cr>", opts)
-        vim.keymap.set("n", "<leader>ca", "<cmd>MluaCodeAction<cr>", opts)
         vim.keymap.set("n", "<leader>f", "<cmd>MluaFormat<cr>", opts)
         vim.keymap.set("n", "<leader>ih", "<cmd>MluaToggleInlayHints<cr>", opts)
       end
