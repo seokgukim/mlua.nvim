@@ -133,6 +133,177 @@ local function load_predefines(installed_dir)
   return decoded
 end
 
+-- Async file scanner using vim.loop
+local function scan_mlua_files_async(root_dir, callback)
+  if not root_dir or root_dir == '' then
+    callback({})
+    return
+  end
+
+  root_dir = vim.fn.fnamemodify(root_dir, ':p')
+
+  local uv = vim.loop or vim.uv
+  local files = {}
+
+  -- Try fast file finders first (async)
+  if vim.fn.executable('fd') == 1 then
+    local stdout = uv.new_pipe(false)
+    local handle = uv.spawn('fd', {
+      args = {'-t', 'f', '-e', 'mlua', '.', root_dir},
+      stdio = {nil, stdout, nil}
+    }, function(code, signal)
+      stdout:close()
+      if code == 0 then
+        callback(files)
+      else
+        callback({})
+      end
+    end)
+
+    if handle then
+      uv.read_start(stdout, function(err, data)
+        if err then
+          return
+        end
+        if data then
+          for line in data:gmatch("[^\n]+") do
+            table.insert(files, line)
+          end
+        end
+      end)
+    else
+      callback({})
+    end
+  elseif vim.fn.executable('rg') == 1 then
+    local stdout = uv.new_pipe(false)
+    local handle = uv.spawn('rg', {
+      args = {'--files', '-g', '*.mlua', root_dir},
+      stdio = {nil, stdout, nil}
+    }, function(code, signal)
+      stdout:close()
+      if code == 0 then
+        callback(files)
+      else
+        callback({})
+      end
+    end)
+
+    if handle then
+      uv.read_start(stdout, function(err, data)
+        if err then
+          return
+        end
+        if data then
+          for line in data:gmatch("[^\n]+") do
+            table.insert(files, line)
+          end
+        end
+      end)
+    else
+      callback({})
+    end
+  else
+    -- Fallback to synchronous find (but schedule callback async)
+    vim.schedule(function()
+      local found_files = {}
+      if vim.fs and vim.fs.find then
+        found_files = vim.fs.find(function(name)
+          return name:match('%.mlua$')
+        end, {
+          limit = math.huge,
+          type = 'file',
+          path = root_dir,
+        })
+      else
+        found_files = vim.fn.globpath(root_dir, "**/*.mlua", false, true)
+      end
+      callback(found_files)
+    end)
+  end
+end
+
+-- Read file asynchronously
+local function read_file_async(path, callback)
+  local uv = vim.loop or vim.uv
+  uv.fs_open(path, "r", 438, function(err, fd)
+    if err or not fd then
+      callback(nil)
+      return
+    end
+
+    uv.fs_fstat(fd, function(err, stat)
+      if err or not stat then
+        uv.fs_close(fd, function() end)
+        callback(nil)
+        return
+      end
+
+      uv.fs_read(fd, stat.size, 0, function(err, data)
+        uv.fs_close(fd, function() end)
+        if err or not data then
+          callback(nil)
+        else
+          callback(data)
+        end
+      end)
+    end)
+  end)
+end
+
+-- Load documents progressively in background
+local function load_documents_async(root_dir, callback)
+  if not root_dir or root_dir == '' then
+    callback({})
+    return
+  end
+
+  -- Check cache first
+  local cached = document_cache[root_dir]
+  if cached then
+    callback(cached)
+    return
+  end
+
+  scan_mlua_files_async(root_dir, function(files)
+    if #files == 0 then
+      document_cache[root_dir] = {}
+      callback({})
+      return
+    end
+
+    local items = {}
+    local completed = 0
+    local total = #files
+
+    for _, path in ipairs(files) do
+      local normalized_path = vim.fn.fnamemodify(path, ':p')
+      
+      read_file_async(normalized_path, function(content)
+        completed = completed + 1
+        
+        if content then
+          local uri = vim.uri_from_fname(normalized_path)
+          table.insert(items, {
+            uri = uri,
+            languageId = "mlua",
+            version = 0,
+            text = content
+          })
+        end
+
+        -- Call callback when all files are processed
+        if completed == total then
+          document_cache[root_dir] = items
+          vim.schedule(function()
+            callback(items)
+          end)
+        end
+      end)
+    end
+  end)
+end
+
+-- Synchronous version for backward compatibility (uses cache only)
 local function collect_document_items(root_dir)
   if not root_dir or root_dir == '' then
     return {}
@@ -145,63 +316,8 @@ local function collect_document_items(root_dir)
     return cached
   end
 
-  local items = {}
-  local files = {}
-  
-  -- Try fast file finders first
-  if vim.fn.executable('fd') == 1 then
-    -- fd is fastest
-    local handle = io.popen(string.format('fd -t f -e mlua . %s', vim.fn.shellescape(root_dir)))
-    if handle then
-      for line in handle:lines() do
-        table.insert(files, line)
-      end
-      handle:close()
-      vim.notify(string.format("Found %d files using fd", #files), vim.log.levels.INFO)
-    end
-  elseif vim.fn.executable('rg') == 1 then
-    -- ripgrep is also very fast
-    local handle = io.popen(string.format('rg --files -g "*.mlua" %s', vim.fn.shellescape(root_dir)))
-    if handle then
-      for line in handle:lines() do
-        table.insert(files, line)
-      end
-      handle:close()
-      vim.notify(string.format("Found %d files using ripgrep", #files), vim.log.levels.INFO)
-    end
-  elseif vim.fs and vim.fs.find then
-    -- Fallback to vim.fs.find
-    files = vim.fs.find(function(name)
-      return name:match('%.mlua$')
-    end, {
-      limit = math.huge,
-      type = 'file',
-      path = root_dir,
-    })
-  else
-    -- Last resort: globpath
-    files = vim.fn.globpath(root_dir, "**/*.mlua", false, true)
-  end
-
-  -- Read all found files
-  for _, path in ipairs(files) do
-    local normalized_path = vim.fn.fnamemodify(path, ':p')
-    if vim.fn.filereadable(normalized_path) == 1 then
-      local content = utils.read_text_file(normalized_path)
-      if content then
-        local uri = vim.uri_from_fname(normalized_path)
-        table.insert(items, {
-          uri = uri,
-          languageId = "mlua",
-          version = 0,
-          text = content
-        })
-      end
-    end
-  end
-
-  document_cache[root_dir] = items
-  return items
+  -- Return empty if not cached - async loading will populate it
+  return {}
 end
 
 local function check_node_available()
@@ -580,41 +696,26 @@ function M.setup(opts)
         end
       end
 
-      -- Load predefines and workspace data before starting LSP
+      -- Load predefines synchronously (small, fast)
       local predefines = load_predefines(installed_dir) or {}
-      local document_items = {}
-      local entry_items = {}
       
-      -- Only collect workspace documents/entries if we have a project root
-      if is_project then
-        document_items = collect_document_items(root_dir)
-        entry_items = entries.collect_entry_items(installed_dir, root_dir, document_items) or {}
-      end
-
-      -- Always include current buffer
+      -- Start with only current buffer - minimal startup time
       local current_uri = vim.uri_from_bufnr(args.buf)
-      local has_current = false
-      for _, item in ipairs(document_items) do
-        if item.uri == current_uri then
-          has_current = true
-          break
-        end
-      end
-
-      if not has_current then
-        local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-        local text = table.concat(lines, "\n")
-        table.insert(document_items, {
+      local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
+      local text = table.concat(lines, "\n")
+      
+      local initial_document_items = {
+        {
           uri = current_uri,
           languageId = "mlua",
           version = 0,
           text = text,
-        })
-      end
+        }
+      }
 
       local init_options_table = {
-        documentItems = document_items,
-        entryItems = entry_items,
+        documentItems = initial_document_items,  -- Start with just current buffer
+        entryItems = {},  -- Start empty, load async
         modules = predefines.modules or {},
         globalVariables = predefines.globalVariables or {},
         globalFunctions = predefines.globalFunctions or {},
@@ -703,7 +804,7 @@ function M.setup(opts)
         vim.notify("Using Bun runtime for mLua LSP", vim.log.levels.INFO)
       end
 
-      vim.lsp.start({
+      local client_id = vim.lsp.start({
         name = 'mlua',
         cmd = { runtime, server_path, '--stdio' },
         root_dir = root_dir,
@@ -725,6 +826,38 @@ function M.setup(opts)
       }, {
         bufnr = args.buf,
       })
+      
+      -- Load workspace data asynchronously in background after LSP starts
+      if is_project and client_id then
+        vim.notify("Loading workspace data in background...", vim.log.levels.DEBUG)
+        
+        -- Load documents asynchronously
+        load_documents_async(root_dir, function(document_items)
+          vim.notify(string.format("Loaded %d documents", #document_items), vim.log.levels.DEBUG)
+          
+          -- Load entries asynchronously
+          entries.collect_entry_items_async(installed_dir, root_dir, function(entry_items)
+            vim.notify(string.format("Loaded %d entries", #entry_items), vim.log.levels.DEBUG)
+            
+            -- Send workspace data to LSP server via custom notification
+            local client = vim.lsp.get_client_by_id(client_id)
+            if client then
+              -- Update init_options with loaded data
+              local workspace_data = {
+                documentItems = document_items,
+                entryItems = entry_items,
+              }
+              
+              -- Send via custom notification if supported
+              pcall(function()
+                client.notify("mlua/workspaceDataLoaded", workspace_data)
+              end)
+              
+              vim.notify("✓ Workspace data loaded asynchronously", vim.log.levels.INFO)
+            end
+          end)
+        end)
+      end
     end,
   })
 

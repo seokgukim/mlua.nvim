@@ -39,6 +39,8 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 
 ### Using [lazy.nvim](https://github.com/folke/lazy.nvim)
 
+**Stable version (main branch):**
+
 ```lua
 {
   "seokgukim/mlua.nvim",
@@ -55,6 +57,32 @@ For more information, see the `./doc/mlua.nvim.txt` file.
   end,
 }
 ```
+
+**Performance-optimized version (feature branch - recommended for large projects):**
+
+```lua
+{
+  "seokgukim/mlua.nvim",
+  branch = "feature/lazy-async-loading",  -- Use the performance branch
+  dependencies = {
+    "nvim-treesitter/nvim-treesitter", -- optional, for Tree-sitter support
+    "hrsh7th/nvim-cmp", -- optional, for autocompletion
+    "hrsh7th/cmp-nvim-lsp", -- optional, for LSP completion source
+  },
+  ft = "mlua", -- lazy load on mlua filetype
+  config = function()
+    require("mlua").setup({
+      -- Your configuration here (see Configuration section)
+    })
+  end,
+}
+```
+
+> **Note:** The `feature/lazy-async-loading` branch provides significantly faster startup times for large projects by:
+> - Starting LSP immediately with only the current buffer
+> - Loading workspace files asynchronously in the background
+> - Using non-blocking file operations
+> - This is especially beneficial for projects with many `.mlua` files
 
 
 ## Tree-sitter Parser Installation

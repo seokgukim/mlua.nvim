@@ -296,6 +296,80 @@ local function set_cached_project_items(root_dir, items)
   }
 end
 
+-- Async version of collect_entry_items
+function M.collect_entry_items_async(installed_dir, root_dir, callback)
+  if not root_dir or root_dir == '' then
+    callback({})
+    return
+  end
+
+  root_dir = vim.fn.fnamemodify(root_dir, ':p')
+
+  -- Try to get from memory cache first
+  local project_items = get_cached_project_items(root_dir)
+  if project_items then
+    callback(project_items)
+    return
+  end
+
+  -- Try to load from disk cache
+  vim.schedule(function()
+    local cached_items = load_cached_entry_items(installed_dir, root_dir)
+    if cached_items then
+      set_cached_project_items(root_dir, cached_items)
+      callback(cached_items)
+      return
+    end
+
+    -- Build from scratch asynchronously
+    local files = vim.fn.globpath(root_dir, entry_glob_pattern, false, true)
+    local project_items_new = {}
+    local sources = {}
+    local completed = 0
+    local total = #files
+
+    if total == 0 then
+      set_cached_project_items(root_dir, {})
+      callback({})
+      return
+    end
+
+    for _, path in ipairs(files) do
+      local normalized_path = vim.fn.fnamemodify(path, ':p')
+      
+      vim.schedule(function()
+        if vim.fn.filereadable(normalized_path) == 1 then
+          local entry = load_entry_file(normalized_path)
+          if entry then
+            table.insert(project_items_new, entry)
+            if uv and uv.fs_stat then
+              local stat = uv.fs_stat(normalized_path)
+              if stat and stat.mtime then
+                table.insert(sources, {
+                  path = normalized_path,
+                  mtime = stat.mtime.sec
+                })
+              end
+            end
+          end
+        end
+
+        completed = completed + 1
+        if completed == total then
+          -- Store to disk cache if we have items
+          if #project_items_new > 0 then
+            store_cached_entry_items(installed_dir, root_dir, project_items_new, sources)
+          end
+
+          -- Store to memory cache
+          set_cached_project_items(root_dir, project_items_new)
+          callback(project_items_new)
+        end
+      end)
+    end
+  end)
+end
+
 function M.collect_entry_items(installed_dir, root_dir, document_items)
   if not root_dir or root_dir == '' then
     return {}
