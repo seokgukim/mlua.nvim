@@ -4,7 +4,7 @@ local entries = require('mlua.entries')
 local M = {}
 
 local attached_buffers = {}
-local document_cache = {}
+-- Removed document_cache - not needed anymore
 local predefines_cache = {}
 
 local function publish_diagnostics(client, uri, diagnostics)
@@ -222,102 +222,41 @@ local function scan_mlua_files_async(root_dir, callback)
   end
 end
 
--- Read file asynchronously
-local function read_file_async(path, callback)
-  local uv = vim.loop or vim.uv
-  uv.fs_open(path, "r", 438, function(err, fd)
-    if err or not fd then
-      callback(nil)
-      return
-    end
-
-    uv.fs_fstat(fd, function(err, stat)
-      if err or not stat then
-        uv.fs_close(fd, function() end)
-        callback(nil)
-        return
-      end
-
-      uv.fs_read(fd, stat.size, 0, function(err, data)
-        uv.fs_close(fd, function() end)
-        if err or not data then
-          callback(nil)
-        else
-          callback(data)
-        end
-      end)
-    end)
-  end)
+-- Build document items with URIs only (no file content reading)
+-- LSP server will request content via textDocument/didOpen when needed
+local function build_document_items_from_paths(paths)
+  local items = {}
+  for _, path in ipairs(paths) do
+    local normalized_path = vim.fn.fnamemodify(path, ':p')
+    local uri = vim.uri_from_fname(normalized_path)
+    table.insert(items, {
+      uri = uri,
+      languageId = "mlua",
+      version = 0,
+      text = ""  -- Empty - server should read from disk or request via protocol
+    })
+  end
+  return items
 end
 
--- Load documents progressively in background
-local function load_documents_async(root_dir, callback)
+-- Scan workspace files asynchronously and return lightweight document items
+local function scan_workspace_async(root_dir, callback)
   if not root_dir or root_dir == '' then
     callback({})
     return
   end
 
-  -- Check cache first
-  local cached = document_cache[root_dir]
-  if cached then
-    callback(cached)
-    return
-  end
-
   scan_mlua_files_async(root_dir, function(files)
     if #files == 0 then
-      document_cache[root_dir] = {}
       callback({})
       return
     end
 
-    local items = {}
-    local completed = 0
-    local total = #files
-
-    for _, path in ipairs(files) do
-      local normalized_path = vim.fn.fnamemodify(path, ':p')
-      
-      read_file_async(normalized_path, function(content)
-        completed = completed + 1
-        
-        if content then
-          local uri = vim.uri_from_fname(normalized_path)
-          table.insert(items, {
-            uri = uri,
-            languageId = "mlua",
-            version = 0,
-            text = content
-          })
-        end
-
-        -- Call callback when all files are processed
-        if completed == total then
-          document_cache[root_dir] = items
-          vim.schedule(function()
-            callback(items)
-          end)
-        end
-      end)
-    end
+    local items = build_document_items_from_paths(files)
+    vim.schedule(function()
+      callback(items)
+    end)
   end)
-end
-
--- Synchronous version for backward compatibility (uses cache only)
-local function collect_document_items(root_dir)
-  if not root_dir or root_dir == '' then
-    return {}
-  end
-
-  root_dir = vim.fn.fnamemodify(root_dir, ':p')
-
-  local cached = document_cache[root_dir]
-  if cached then
-    return cached
-  end
-
-  -- Return empty if not cached - async loading will populate it
-  return {}
 end
 
 local function check_node_available()
@@ -832,8 +771,8 @@ function M.setup(opts)
       
       -- Load workspace data asynchronously in background after LSP starts
       if is_project and client_id then
-        -- Load documents asynchronously
-        load_documents_async(root_dir, function(document_items)
+        -- Scan for files asynchronously (lightweight - no file reading)
+        scan_workspace_async(root_dir, function(document_items)
           -- Load entries asynchronously
           entries.collect_entry_items_async(installed_dir, root_dir, function(entry_items)
             -- Send workspace data to LSP server via custom notification
