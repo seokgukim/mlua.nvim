@@ -582,7 +582,11 @@ function M.setup(opts)
     return
   end
 
+  -- Create autocommand group to prevent duplicates
+  local group = vim.api.nvim_create_augroup("MluaLsp", { clear = true })
+  
   vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile" }, {
+    group = group,
     pattern = "*.mlua",
     callback = function(args)
       if not vim.api.nvim_buf_is_loaded(args.buf) then
@@ -801,7 +805,6 @@ function M.setup(opts)
       local runtime = 'node'
       if vim.fn.executable('bun') == 1 then
         runtime = 'bun'
-        vim.notify("Using Bun runtime for mLua LSP", vim.log.levels.INFO)
       end
 
       local client_id = vim.lsp.start({
@@ -816,7 +819,7 @@ function M.setup(opts)
           allow_incremental_sync = true,
         },
         on_init = function(client, initialize_result)
-          vim.notify("mLua LSP initialized successfully", vim.log.levels.INFO)
+          -- Silent on_init, only log errors
         end,
         on_attach = combined_on_attach,
         on_error = function(code, err)
@@ -829,16 +832,10 @@ function M.setup(opts)
       
       -- Load workspace data asynchronously in background after LSP starts
       if is_project and client_id then
-        vim.notify("Loading workspace data in background...", vim.log.levels.DEBUG)
-        
         -- Load documents asynchronously
         load_documents_async(root_dir, function(document_items)
-          vim.notify(string.format("Loaded %d documents", #document_items), vim.log.levels.DEBUG)
-          
           -- Load entries asynchronously
           entries.collect_entry_items_async(installed_dir, root_dir, function(entry_items)
-            vim.notify(string.format("Loaded %d entries", #entry_items), vim.log.levels.DEBUG)
-            
             -- Send workspace data to LSP server via custom notification
             local client = vim.lsp.get_client_by_id(client_id)
             if client then
@@ -853,7 +850,7 @@ function M.setup(opts)
                 client.notify("mlua/workspaceDataLoaded", workspace_data)
               end)
               
-              vim.notify("✓ Workspace data loaded asynchronously", vim.log.levels.INFO)
+              vim.notify(string.format("✓ Loaded %d files, %d entries", #document_items, #entry_items), vim.log.levels.INFO)
             end
           end)
         end)
@@ -861,7 +858,7 @@ function M.setup(opts)
     end,
   })
 
-  vim.notify("mLua LSP v" .. installed_version .. " configured", vim.log.levels.INFO)
+  vim.notify_once("mLua LSP v" .. installed_version .. " configured", vim.log.levels.INFO)
 end
 
 -- Install Tree-sitter parser and queries
