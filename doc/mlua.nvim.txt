@@ -30,7 +30,6 @@ Features:
   • Fallback Vim syntax highlighting
   • Automatic .mlua file detection
   • Async file operations (performance branch)
-  • No stale caching issues
 
 Project Repository:
   https://github.com/seokgukim/mlua.nvim

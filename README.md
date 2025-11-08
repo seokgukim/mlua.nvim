@@ -78,7 +78,7 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 }
 ```
 
-> **⚡ Performance Improvements in `feature/lazy-async-loading` branch:**
+> **⚡ Performance Improvements from `feature/lazy-async-loading` branch:**
 > 
 > This branch provides **dramatically faster startup times** for large projects:
 > 
@@ -89,7 +89,7 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 > - **Smart scanning** - Uses `fd`/`rg` when available for fast file discovery
 > 
 > **Benchmark (500 file project):**
-> - Main branch: 15-30s to start LSP
+> - Former branch: 15-30s to start LSP
 > - Performance branch: ~0.1s to start LSP
 > 
 > Recommended for any project with more than 10-20 `.mlua` files.
