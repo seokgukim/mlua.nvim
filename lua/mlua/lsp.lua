@@ -224,23 +224,32 @@ end
 
 -- Build document items with URIs only (no file content reading)
 -- LSP server will request content via textDocument/didOpen when needed
-local function build_document_items_from_paths(paths)
+local function build_document_items_from_paths(paths, include_content)
   local items = {}
   for _, path in ipairs(paths) do
     local normalized_path = vim.fn.fnamemodify(path, ':p')
     local uri = vim.uri_from_fname(normalized_path)
-    table.insert(items, {
+    local item = {
       uri = uri,
       languageId = "mlua",
       version = 0,
-      text = ""  -- Empty - server should read from disk or request via protocol
-    })
+    }
+    
+    -- If include_content is true, read the file
+    if include_content and vim.fn.filereadable(normalized_path) == 1 then
+      local content = utils.read_text_file(normalized_path)
+      item.text = content or ""
+    else
+      item.text = ""  -- Empty - server should read from disk or request via protocol
+    end
+    
+    table.insert(items, item)
   end
   return items
 end
 
 -- Scan workspace files asynchronously and return lightweight document items
-local function scan_workspace_async(root_dir, callback)
+local function scan_workspace_async(root_dir, include_content, callback)
   if not root_dir or root_dir == '' then
     callback({})
     return
@@ -252,7 +261,7 @@ local function scan_workspace_async(root_dir, callback)
       return
     end
 
-    local items = build_document_items_from_paths(files)
+    local items = build_document_items_from_paths(files, include_content)
     vim.schedule(function()
       callback(items)
     end)
@@ -642,28 +651,39 @@ function M.setup(opts)
       -- Load predefines synchronously (small, fast)
       local predefines = load_predefines(installed_dir) or {}
       
-      -- Start with only current buffer - minimal startup time
+      -- Current buffer document
       local current_uri = vim.uri_from_bufnr(args.buf)
       local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
       local text = table.concat(lines, "\n")
       
-      local initial_document_items = {
-        {
-          uri = current_uri,
-          languageId = "mlua",
-          version = 0,
-          text = text,
-        }
-      }
+      -- Function to start LSP with given workspace data
+      local function start_lsp_with_data(document_items, entry_items)
+        -- Ensure current buffer is included
+        local has_current = false
+        for _, item in ipairs(document_items) do
+          if item.uri == current_uri then
+            has_current = true
+            break
+          end
+        end
+        
+        if not has_current then
+          table.insert(document_items, 1, {
+            uri = current_uri,
+            languageId = "mlua",
+            version = 0,
+            text = text,
+          })
+        end
 
-      local init_options_table = {
-        documentItems = initial_document_items,  -- Start with just current buffer
-        entryItems = {},  -- Start empty, load async
-        modules = predefines.modules or {},
-        globalVariables = predefines.globalVariables or {},
-        globalFunctions = predefines.globalFunctions or {},
-        stopwatch = false,
-        profileMode = 0,
+        local init_options_table = {
+          documentItems = document_items,
+          entryItems = entry_items,
+          modules = predefines.modules or {},
+          globalVariables = predefines.globalVariables or {},
+          globalFunctions = predefines.globalFunctions or {},
+          stopwatch = false,
+          profileMode = 0,
         capabilities = {
           completionCapability = {
             codeBlockScriptSnippetCompletion = true,
@@ -738,61 +758,54 @@ function M.setup(opts)
         },
       }
 
-      local init_options_json = vim.fn.json_encode(init_options_table)
+        local init_options_json = vim.fn.json_encode(init_options_table)
 
-      -- Prefer Bun over Node.js for better performance
-      local runtime = 'node'
-      if vim.fn.executable('bun') == 1 then
-        runtime = 'bun'
+        -- Prefer Bun over Node.js for better performance
+        local runtime = 'node'
+        if vim.fn.executable('bun') == 1 then
+          runtime = 'bun'
+        end
+
+        vim.lsp.start({
+          name = 'mlua',
+          cmd = { runtime, server_path, '--stdio' },
+          root_dir = root_dir,
+          init_options = init_options_json,
+          settings = opts.settings or {},
+          handlers = handlers,
+          flags = {
+            debounce_text_changes = 150,
+            allow_incremental_sync = true,
+          },
+          on_init = function(client, initialize_result)
+            -- Silent on_init, only log errors
+          end,
+          on_attach = combined_on_attach,
+          on_error = function(code, err)
+            vim.notify("mLua LSP error [" .. tostring(code) .. "]: " .. tostring(err), vim.log.levels.ERROR)
+          end,
+          capabilities = client_capabilities,
+        }, {
+          bufnr = args.buf,
+        })
       end
-
-      local client_id = vim.lsp.start({
-        name = 'mlua',
-        cmd = { runtime, server_path, '--stdio' },
-        root_dir = root_dir,
-        init_options = init_options_json,
-        settings = opts.settings or {},
-        handlers = handlers,
-        flags = {
-          debounce_text_changes = 150,
-          allow_incremental_sync = true,
-        },
-        on_init = function(client, initialize_result)
-          -- Silent on_init, only log errors
-        end,
-        on_attach = combined_on_attach,
-        on_error = function(code, err)
-          vim.notify("mLua LSP error [" .. tostring(code) .. "]: " .. tostring(err), vim.log.levels.ERROR)
-        end,
-        capabilities = client_capabilities,
-      }, {
-        bufnr = args.buf,
-      })
       
-      -- Load workspace data asynchronously in background after LSP starts
-      if is_project and client_id then
-        -- Scan for files asynchronously (lightweight - no file reading)
-        scan_workspace_async(root_dir, function(document_items)
+      -- Load workspace data asynchronously, then start LSP with full context
+      if is_project then
+        vim.notify("Loading workspace...", vim.log.levels.INFO)
+        -- Scan for files asynchronously WITH content reading
+        scan_workspace_async(root_dir, true, function(document_items)
           -- Load entries asynchronously
           entries.collect_entry_items_async(installed_dir, root_dir, function(entry_items)
-            -- Send workspace data to LSP server via custom notification
-            local client = vim.lsp.get_client_by_id(client_id)
-            if client then
-              -- Update init_options with loaded data
-              local workspace_data = {
-                documentItems = document_items,
-                entryItems = entry_items,
-              }
-              
-              -- Send via custom notification if supported
-              pcall(function()
-                client.notify("mlua/workspaceDataLoaded", workspace_data)
-              end)
-              
-              vim.notify(string.format("✓ Loaded %d files, %d entries", #document_items, #entry_items), vim.log.levels.INFO)
-            end
+            vim.schedule(function()
+              vim.notify(string.format("✓ Loaded %d files, %d entries - starting LSP", #document_items, #entry_items), vim.log.levels.INFO)
+              start_lsp_with_data(document_items, entry_items)
+            end)
           end)
         end)
+      else
+        -- No project, just start with current buffer
+        start_lsp_with_data({}, {})
       end
     end,
   })
