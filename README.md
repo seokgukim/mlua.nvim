@@ -58,42 +58,6 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 }
 ```
 
-**Performance-optimized version (feature branch - recommended for large projects):**
-
-```lua
-{
-  "seokgukim/mlua.nvim",
-  branch = "feature/lazy-async-loading",  -- Use the performance branch
-  dependencies = {
-    "nvim-treesitter/nvim-treesitter", -- optional, for Tree-sitter support
-    "hrsh7th/nvim-cmp", -- optional, for autocompletion
-    "hrsh7th/cmp-nvim-lsp", -- optional, for LSP completion source
-  },
-  ft = "mlua", -- lazy load on mlua filetype
-  config = function()
-    require("mlua").setup({
-      -- Your configuration here (see Configuration section)
-    })
-  end,
-}
-```
-
-> **⚡ Performance Improvements from `feature/lazy-async-loading` branch:**
-> 
-> This branch provides **dramatically faster startup times** for large projects:
-> 
-> - **10-300x faster LSP startup** - Start immediately with current buffer only
-> - **90% less memory usage** - Only file paths scanned, not file contents
-> - **Non-blocking async I/O** - Uses `vim.loop` for parallel file operations  
-> - **No stale cache issues** - Server reads fresh content from disk
-> - **Smart scanning** - Uses `fd`/`rg` when available for fast file discovery
-> 
-> **Benchmark (500 file project):**
-> - Former branch: 15-30s to start LSP
-> - Performance branch: ~0.1s to start LSP
-> 
-> Recommended for any project with more than 10-20 `.mlua` files.
-
 
 ## Tree-sitter Parser Installation
 
@@ -128,10 +92,25 @@ require("mlua").setup({
     cmd = nil, -- Auto-detected from LSP module
     capabilities = nil, -- Will use nvim-cmp capabilities if available
     on_attach = nil, -- Optional: your custom on_attach function
+    smart_load_frequency = 4, -- Trigger smart loading every N bytes (default: 4)
   },
   treesitter = {
     enabled = true,
     parser_path = vim.fn.expand("~/tree-sitter-mlua"), -- Path to tree-sitter-mlua repo
+  },
+})
+```
+
+### Smart Loading Configuration
+
+The `smart_load_frequency` option controls how often the plugin triggers smart loading of workspace files during editing. Lower values make it more responsive but may impact performance on slower systems.
+
+```lua
+require("mlua").setup({
+  lsp = {
+    smart_load_frequency = 4, -- Default: trigger every 4 bytes typed
+    -- smart_load_frequency = 8, -- Less frequent: trigger every 8 bytes
+    -- smart_load_frequency = 2, -- More responsive: trigger every 2 bytes
   },
 })
 ```
@@ -238,10 +217,12 @@ mlua.nvim/
 ├── lua/
 │   ├── mlua.lua       # Main plugin module
 │   └── mlua/
-│       ├── lsp.lua    # LSP configuration
-│       ├── debug.lua  # Debug utilities
-│       ├── entries.lua # LSP entry definitions
-│       └── utils.lua  # Utility functions
+│       ├── lsp.lua        # LSP client setup and commands
+│       ├── workspace.lua  # Smart loading and file indexing
+│       ├── predefines.lua # Predefines loader (modules, globals)
+│       ├── debug.lua      # Debug utilities
+│       ├── entries.lua    # LSP entry definitions
+│       └── utils.lua      # Utility functions
 ├── queries/           # Tree-sitter queries
 │   └── mlua/
 │       └── highlights.scm

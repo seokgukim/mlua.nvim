@@ -1,11 +1,11 @@
 local utils = require('mlua.utils')
 local entries = require('mlua.entries')
+local workspace = require('mlua.workspace')
+local predefines = require('mlua.predefines')
 
 local M = {}
 
 local attached_buffers = {}
--- Removed document_cache - not needed anymore
-local predefines_cache = {}
 
 local function publish_diagnostics(client, uri, diagnostics)
   if not diagnostics then
@@ -59,213 +59,6 @@ local function register_buffer_cleanup(client_id, bufnr)
       end
     end,
   })
-end
-
-local function load_predefines(installed_dir)
-  if not installed_dir or installed_dir == '' then
-    return nil
-  end
-
-  local cached = predefines_cache[installed_dir]
-  if cached then
-    return cached
-  end
-
-  local cache_file = utils.build_cache_path(installed_dir, "predefines.json")
-  if cache_file and vim.fn.filereadable(cache_file) == 1 then
-    local payload = utils.read_text_file(cache_file)
-    if payload then
-      local decoded = utils.json_decode(payload)
-      if decoded then
-        predefines_cache[installed_dir] = decoded
-        return decoded
-      end
-    end
-  end
-
-  -- Try to generate predefines if cache doesn't exist
-  local predefines_dir = vim.fn.fnamemodify(installed_dir .. "/extension/scripts/predefines", ':p')
-  if vim.fn.isdirectory(predefines_dir) == 0 then
-    vim.notify("Predefines directory not found", vim.log.levels.WARN)
-    return nil
-  end
-
-  local predefines_index = vim.fn.fnamemodify(predefines_dir .. "/out/index.js", ':p')
-  if vim.fn.filereadable(predefines_index) == 0 then
-    vim.notify("Predefines index.js not found", vim.log.levels.WARN)
-    return nil
-  end
-
-  local node_predefines_index = utils.normalize_for_node(predefines_index)
-
-  local script = table.concat({
-    "const predefines = require('" .. node_predefines_index:gsub("\\", "\\\\") .. "');",
-    "const result = {",
-    "  modules: predefines.modules || [],",
-    "  globalVariables: predefines.globalVariables || [],",
-    "  globalFunctions: predefines.globalFunctions || []",
-    "};",
-    "process.stdout.write(JSON.stringify(result));",
-  }, '\n')
-
-  local output = vim.fn.system({ "node", "-e", script })
-  if vim.v.shell_error ~= 0 then
-    vim.notify("Failed to load predefines: " .. (output or "unknown error"), vim.log.levels.WARN)
-    return nil
-  end
-
-  local decoded = utils.json_decode(output)
-  if not decoded then
-    vim.notify("Failed to parse predefines JSON", vim.log.levels.WARN)
-    return nil
-  end
-
-  predefines_cache[installed_dir] = decoded
-
-  -- Try to write to cache file for next time
-  if cache_file then
-    local encoded = utils.json_encode(decoded)
-    if encoded then
-      utils.write_text_file(cache_file, encoded)
-    end
-  end
-
-  return decoded
-end
-
--- Async file scanner using vim.loop
-local function scan_mlua_files_async(root_dir, callback)
-  if not root_dir or root_dir == '' then
-    callback({})
-    return
-  end
-
-  root_dir = vim.fn.fnamemodify(root_dir, ':p')
-
-  local uv = vim.loop or vim.uv
-  local files = {}
-
-  -- Try fast file finders first (async)
-  if vim.fn.executable('fd') == 1 then
-    local stdout = uv.new_pipe(false)
-    local handle = uv.spawn('fd', {
-      args = {'-t', 'f', '-e', 'mlua', '.', root_dir},
-      stdio = {nil, stdout, nil}
-    }, function(code, signal)
-      stdout:close()
-      if code == 0 then
-        callback(files)
-      else
-        callback({})
-      end
-    end)
-
-    if handle then
-      uv.read_start(stdout, function(err, data)
-        if err then
-          return
-        end
-        if data then
-          for line in data:gmatch("[^\n]+") do
-            table.insert(files, line)
-          end
-        end
-      end)
-    else
-      callback({})
-    end
-  elseif vim.fn.executable('rg') == 1 then
-    local stdout = uv.new_pipe(false)
-    local handle = uv.spawn('rg', {
-      args = {'--files', '-g', '*.mlua', root_dir},
-      stdio = {nil, stdout, nil}
-    }, function(code, signal)
-      stdout:close()
-      if code == 0 then
-        callback(files)
-      else
-        callback({})
-      end
-    end)
-
-    if handle then
-      uv.read_start(stdout, function(err, data)
-        if err then
-          return
-        end
-        if data then
-          for line in data:gmatch("[^\n]+") do
-            table.insert(files, line)
-          end
-        end
-      end)
-    else
-      callback({})
-    end
-  else
-    -- Fallback to synchronous find (but schedule callback async)
-    vim.schedule(function()
-      local found_files = {}
-      if vim.fs and vim.fs.find then
-        found_files = vim.fs.find(function(name)
-          return name:match('%.mlua$')
-        end, {
-          limit = math.huge,
-          type = 'file',
-          path = root_dir,
-        })
-      else
-        found_files = vim.fn.globpath(root_dir, "**/*.mlua", false, true)
-      end
-      callback(found_files)
-    end)
-  end
-end
-
--- Build document items with URIs only (no file content reading)
--- LSP server will request content via textDocument/didOpen when needed
-local function build_document_items_from_paths(paths, include_content)
-  local items = {}
-  for _, path in ipairs(paths) do
-    local normalized_path = vim.fn.fnamemodify(path, ':p')
-    local uri = vim.uri_from_fname(normalized_path)
-    local item = {
-      uri = uri,
-      languageId = "mlua",
-      version = 0,
-    }
-    
-    -- If include_content is true, read the file
-    if include_content and vim.fn.filereadable(normalized_path) == 1 then
-      local content = utils.read_text_file(normalized_path)
-      item.text = content or ""
-    else
-      item.text = ""  -- Empty - server should read from disk or request via protocol
-    end
-    
-    table.insert(items, item)
-  end
-  return items
-end
-
--- Scan workspace files asynchronously and return lightweight document items
-local function scan_workspace_async(root_dir, include_content, callback)
-  if not root_dir or root_dir == '' then
-    callback({})
-    return
-  end
-
-  scan_mlua_files_async(root_dir, function(files)
-    if #files == 0 then
-      callback({})
-      return
-    end
-
-    local items = build_document_items_from_paths(files, include_content)
-    vim.schedule(function()
-      callback(items)
-    end)
-  end)
 end
 
 local function check_node_available()
@@ -510,6 +303,11 @@ function M.setup(opts)
 
   -- Set global folding option (default: false)
   vim.g.mlua_enable_folding = opts.enable_folding or false
+  
+  -- Configure workspace module
+  workspace.setup({
+    smart_load_frequency = opts.smart_load_frequency or 4,
+  })
 
   if not check_node_available() then
     vim.notify("Node.js is not installed or not in PATH. Please install Node.js to use mLua LSP.", vim.log.levels.ERROR)
@@ -549,7 +347,6 @@ function M.setup(opts)
         root_dir = vim.fn.fnamemodify(root_dir, ':p')
       else
         -- If no project root found, use the directory of the current file
-        -- instead of cwd to avoid scanning unrelated directories
         root_dir = vim.fn.fnamemodify(bufname, ':p:h')
       end
       
@@ -563,30 +360,6 @@ function M.setup(opts)
         dynamicRegistration = false,
         relatedDocumentSupport = false,
       }
-      -- client_capabilities.textDocument.semanticTokens = client_capabilities.textDocument.semanticTokens or {
-      --   dynamicRegistration = false,
-      --   tokenTypes = {
-      --     "namespace", "type", "class", "enum", "interface", "struct", "typeParameter",
-      --     "parameter", "variable", "property", "enumMember", "event", "function",
-      --     "method", "macro", "keyword", "modifier", "comment", "string", "number",
-      --     "regexp", "operator", "decorator"
-      --   },
-      --   tokenModifiers = {
-      --     "declaration", "definition", "readonly", "static", "deprecated", "abstract",
-      --     "async", "modification", "documentation", "defaultLibrary"
-      --   },
-      --   formats = { "relative" },
-      --   requests = {
-      --     range = true,
-      --     full = {
-      --       delta = true
-      --     }
-      --   },
-      --   multilineTokenSupport = false,
-      --   overlappingTokenSupport = false,
-      --   serverCancelSupport = true,
-      --   augmentsSyntaxTokens = true
-      -- }
 
       local function refresh_attached_diagnostics(client)
         local tracked = attached_buffers[client.id]
@@ -633,10 +406,10 @@ function M.setup(opts)
         track_buffer(client, bufnr)
         request_document_diagnostics(client, bufnr)
         
-        -- Enable semantic tokens if server supports it (silently)
-        -- if client.server_capabilities.semanticTokensProvider then
-        --   vim.lsp.semantic_tokens.start(bufnr, client.id)
-        -- end
+        -- Setup smart loading triggers
+        if is_project then
+          workspace.setup_smart_load_triggers(client, bufnr, root_dir)
+        end
 
         if user_on_attach then
           local ok, err = pcall(user_on_attach, client, bufnr)
@@ -649,7 +422,7 @@ function M.setup(opts)
       end
 
       -- Load predefines synchronously (small, fast)
-      local predefines = load_predefines(installed_dir) or {}
+      local predefs = predefines.load_predefines(installed_dir) or {}
       
       -- Current buffer document
       local current_uri = vim.uri_from_bufnr(args.buf)
@@ -679,9 +452,9 @@ function M.setup(opts)
         local init_options_table = {
           documentItems = document_items,
           entryItems = entry_items,
-          modules = predefines.modules or {},
-          globalVariables = predefines.globalVariables or {},
-          globalFunctions = predefines.globalFunctions or {},
+          modules = predefs.modules or {},
+          globalVariables = predefs.globalVariables or {},
+          globalFunctions = predefs.globalFunctions or {},
           stopwatch = false,
           profileMode = 0,
         capabilities = {
@@ -790,16 +563,17 @@ function M.setup(opts)
         })
       end
       
-      -- Load workspace data asynchronously, then start LSP with full context
+      -- Start LSP immediately with current buffer, scan workspace in background
       if is_project then
-        vim.notify("Loading workspace...", vim.log.levels.INFO)
-        -- Scan for files asynchronously WITH content reading
-        scan_workspace_async(root_dir, true, function(document_items)
-          -- Load entries asynchronously
-          entries.collect_entry_items_async(installed_dir, root_dir, function(entry_items)
-            vim.schedule(function()
-              vim.notify(string.format("✓ Loaded %d files, %d entries - starting LSP", #document_items, #entry_items), vim.log.levels.INFO)
-              start_lsp_with_data(document_items, entry_items)
+        -- Load entry items first (needed for LSP initialization)
+        entries.collect_entry_items_async(installed_dir, root_dir, function(entry_items)
+          vim.schedule(function()
+            -- Start LSP with current buffer + entries
+            start_lsp_with_data({}, entry_items)
+            
+            -- Scan workspace paths in background (no content reading)
+            workspace.scan_workspace_paths_async(root_dir, function(file_paths)
+              vim.notify(string.format("✓ Indexed %d files for smart loading", #file_paths), vim.log.levels.INFO)
             end)
           end)
         end)
@@ -927,6 +701,7 @@ function M.install_treesitter()
   return true
 end
 
+-- Commands
 vim.api.nvim_create_user_command('MluaInstall', M.download, { desc = 'Install mLua language server' })
 vim.api.nvim_create_user_command('MluaUpdate', M.update, { desc = 'Update mLua language server' })
 vim.api.nvim_create_user_command('MluaCheckVersion', M.check_version, { desc = 'Check mLua version' })
@@ -938,6 +713,45 @@ vim.api.nvim_create_user_command('MluaRestart', function()
     vim.cmd('edit')
   end, 500)
 end, { desc = 'Restart mLua language server' })
+vim.api.nvim_create_user_command('MluaSmartLoad', function()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local clients = vim.lsp.get_clients({ name = 'mlua', bufnr = bufnr })
+  if #clients == 0 then
+    vim.notify("No mLua LSP client attached to current buffer", vim.log.levels.WARN)
+    return
+  end
+  
+  local client = clients[1]
+  local fname = vim.api.nvim_buf_get_name(bufnr)
+  local root_dir = find_root(fname)
+  
+  if not root_dir then
+    vim.notify("Not in an mLua project workspace", vim.log.levels.WARN)
+    return
+  end
+  
+  local count = workspace.smart_load_dependencies(client.id, bufnr, root_dir)
+  if count == 0 then
+    vim.notify("No new files to load", vim.log.levels.INFO)
+  end
+end, { desc = 'Manually trigger smart loading for current buffer' })
+vim.api.nvim_create_user_command('MluaIndexStatus', function()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local fname = vim.api.nvim_buf_get_name(bufnr)
+  local root_dir = find_root(fname)
+  
+  if not root_dir then
+    vim.notify("Not in an mLua project workspace", vim.log.levels.WARN)
+    return
+  end
+  
+  local status = workspace.get_status(root_dir)
+  
+  vim.notify(string.format(
+    "Index Status:\n  Indexed: %d files\n  Loaded: %d files\n  Names: %d\n  Prefixes: %d",
+    status.indexed, status.loaded, status.names, status.prefixes
+  ), vim.log.levels.INFO)
+end, { desc = 'Show workspace indexing status' })
 vim.api.nvim_create_user_command('MluaDebug', function()
   require('mlua.debug').check_status()
 end, { desc = 'Show mLua LSP debug information' })
