@@ -21,7 +21,9 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 ## Features
 
 - 🔍 **LSP Integration** - Language server support with autocomplete, go-to-definition, hover, etc.
-- 🌳 **Tree-sitter Support** - Syntax highlighting via Tree-sitter parser
+- � **Event-Driven Loading** - Smart, on-demand workspace file loading via LSP protocol
+- 🔎 **Fuzzy Matching** - Intelligent file resolution for cross-file references
+- �🌳 **Tree-sitter Support** - Syntax highlighting via Tree-sitter parser
 - 📝 **Syntax Highlighting** - Fallback Vim syntax when Tree-sitter is unavailable
 - 🔧 **Filetype Detection** - Automatic `.mlua` file recognition
 
@@ -92,7 +94,6 @@ require("mlua").setup({
     cmd = nil, -- Auto-detected from LSP module
     capabilities = nil, -- Will use nvim-cmp capabilities if available
     on_attach = nil, -- Optional: your custom on_attach function
-    smart_load_frequency = 4, -- Trigger smart loading every N bytes (default: 4)
   },
   treesitter = {
     enabled = true,
@@ -101,19 +102,17 @@ require("mlua").setup({
 })
 ```
 
-### Smart Loading Configuration
+### How It Works
 
-The `smart_load_frequency` option controls how often the plugin triggers smart loading of workspace files during editing. Lower values make it more responsive but may impact performance on slower systems.
+The plugin uses an **event-driven approach** similar to VS Code:
 
-```lua
-require("mlua").setup({
-  lsp = {
-    smart_load_frequency = 4, -- Default: trigger every 4 bytes typed
-    -- smart_load_frequency = 8, -- Less frequent: trigger every 8 bytes
-    -- smart_load_frequency = 2, -- More responsive: trigger every 2 bytes
-  },
-})
-```
+1. **On file open**: LSP starts with minimal data (current file + predefines)
+2. **Workspace indexing**: Files are indexed in background (basename → path mapping)
+3. **On InsertLeave**: Plugin extracts tokens (class names, types) from your code
+4. **Fuzzy matching**: Tokens are matched against indexed files using fuzzy search
+5. **Load via didOpen**: Matched files are sent to LSP for cross-file features
+
+**No polling, no aggressive loading** - files load only when you finish typing, keeping things fast and predictable.
 
 ### Custom LSP on_attach
 
@@ -150,9 +149,6 @@ require("mlua").setup({
 | `:MluaUninstall` | Uninstall mLua language server |
 | `:MluaTSInstall` | Automatically install Tree-sitter parser (clone, build, setup) |
 | `:MluaRestart` | Restart the language server |
-| `:MluaDebug` | Show LSP debug information |
-| `:MluaLogs` | Show LSP logs |
-| `:MluaCapabilities` | Show full server capabilities |
 
 ### Buffer-local LSP Commands
 
@@ -194,16 +190,26 @@ vim.api.nvim_create_autocmd("LspAttach", {
 })
 ```
 
+## Performance
+
+The event-driven system is designed to be lightweight and efficient:
+
+- **Fast startup**: Only current file + predefines loaded initially
+- **No polling**: Files load only on `InsertLeave` event
+- **Fuzzy matching**: Smart file resolution without exact name matching
+- **No cache eviction**: Once loaded, files stay in memory
+- **Predictable**: You control when files load (by finishing typing)
+
 ## Debug Commands
 
-The plugin includes debug utilities accessible via `:lua require('mlua.debug')` or the provided commands.
+The plugin includes debug utilities accessible via `:lua require('mlua.debug')`.
 
 Example usage:
 
 ```vim
-:MluaDebug
-:MluaLogs
-:MluaCapabilities
+:lua require('mlua.debug').check_status()
+:lua require('mlua.debug').show_logs()
+:lua require('mlua.debug').show_capabilities()
 ```
 
 ## File Structure
@@ -218,11 +224,11 @@ mlua.nvim/
 │   ├── mlua.lua       # Main plugin module
 │   └── mlua/
 │       ├── lsp.lua        # LSP client setup and commands
-│       ├── workspace.lua  # Smart loading and file indexing
-│       ├── predefines.lua # Predefines loader (modules, globals)
+│       ├── workspace.lua  # Event-driven file loading with fuzzy matching
+│       ├── predefines.lua # Predefines loader with JSON compression
 │       ├── debug.lua      # Debug utilities
 │       ├── entries.lua    # LSP entry definitions
-│       └── utils.lua      # Utility functions
+│       └── utils.lua      # Utility functions (fuzzy matching, etc.)
 ├── queries/           # Tree-sitter queries
 │   └── mlua/
 │       └── highlights.scm

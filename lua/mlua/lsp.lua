@@ -732,38 +732,5 @@ vim.api.nvim_create_user_command('MluaRestart', function()
     vim.cmd('edit')
   end, 500)
 end, { desc = 'Restart mLua language server' })
-vim.api.nvim_create_user_command('MluaLoadRelated', function()
-  local bufnr = vim.api.nvim_get_current_buf()
-  local clients = vim.lsp.get_clients({ name = 'mlua', bufnr = bufnr })
-  if #clients == 0 then
-    vim.notify("No mLua LSP client attached to current buffer", vim.log.levels.WARN)
-    return
-  end
-  
-  local client = clients[1]
-  local fname = vim.api.nvim_buf_get_name(bufnr)
-  local root_dir = find_root(fname)
-  
-  if not root_dir then
-    vim.notify("Not in an mLua project workspace", vim.log.levels.WARN)
-    return
-  end
-  
-  workspace.load_related_files(client.id, bufnr, root_dir)
-end, { desc = 'Load related files based on current buffer' })
-
-vim.api.nvim_create_user_command('MluaIndexStatus', function()
-  vim.notify("Workspace index status: (simplified version)", vim.log.levels.INFO)
-end, { desc = 'Show workspace indexing status' })
-
-vim.api.nvim_create_user_command('MluaDebug', function()
-  require('mlua.debug').check_status()
-end, { desc = 'Show mLua LSP debug information' })
-vim.api.nvim_create_user_command('MluaLogs', function()
-  require('mlua.debug').show_logs()
-end, { desc = 'Show LSP logs' })
-vim.api.nvim_create_user_command('MluaCapabilities', function()
-  require('mlua.debug').show_capabilities()
-end, { desc = 'Show full server capabilities' })
 
 return M
