@@ -236,4 +236,52 @@ function M.merge_lists(left, right)
   return combined
 end
 
+-- Fuzzy matching: returns score (0-100) for how well pattern matches text
+-- Higher score = better match
+function M.fuzzy_match(pattern, text)
+  if not pattern or not text then
+    return 0
+  end
+  
+  pattern = pattern:lower()
+  text = text:lower()
+  
+  -- Exact match
+  if pattern == text then
+    return 100
+  end
+  
+  -- Starts with
+  if text:sub(1, #pattern) == pattern then
+    return 90
+  end
+  
+  -- Contains
+  if text:find(pattern, 1, true) then
+    return 80
+  end
+  
+  -- Fuzzy: all characters of pattern appear in order in text
+  local pattern_idx = 1
+  local text_idx = 1
+  local matches = 0
+  
+  while pattern_idx <= #pattern and text_idx <= #text do
+    if pattern:sub(pattern_idx, pattern_idx) == text:sub(text_idx, text_idx) then
+      matches = matches + 1
+      pattern_idx = pattern_idx + 1
+    end
+    text_idx = text_idx + 1
+  end
+  
+  -- All characters matched in order
+  if matches == #pattern then
+    -- Score based on how compact the match is
+    local ratio = matches / #text
+    return math.floor(70 * ratio)
+  end
+  
+  return 0
+end
+
 return M

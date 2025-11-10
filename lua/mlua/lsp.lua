@@ -6,6 +6,7 @@ local predefines = require('mlua.predefines')
 local M = {}
 
 local attached_buffers = {}
+local lsp_starting = {}  -- Track if LSP is starting for a root_dir
 
 local function publish_diagnostics(client, uri, diagnostics)
   if not diagnostics then
@@ -303,11 +304,6 @@ function M.setup(opts)
 
   -- Set global folding option (default: false)
   vim.g.mlua_enable_folding = opts.enable_folding or false
-  
-  -- Configure workspace module
-  workspace.setup({
-    smart_load_frequency = opts.smart_load_frequency or 4,
-  })
 
   if not check_node_available() then
     vim.notify("Node.js is not installed or not in PATH. Please install Node.js to use mLua LSP.", vim.log.levels.ERROR)
@@ -336,6 +332,28 @@ function M.setup(opts)
     pattern = "*.mlua",
     callback = function(args)
       if not vim.api.nvim_buf_is_loaded(args.buf) then
+        return
+      end
+      
+      -- Check if LSP is already running for this buffer
+      local clients = vim.lsp.get_clients({ name = 'mlua', bufnr = args.buf })
+      if #clients > 0 then
+        -- LSP already attached, just setup triggers for this buffer
+        local client = clients[1]
+        local fname = vim.api.nvim_buf_get_name(args.buf)
+        local root_dir = find_root(fname)
+        if root_dir then
+          workspace.setup_for_buffer(client, args.buf, root_dir)
+        end
+        return
+      end
+      
+      local fname = vim.api.nvim_buf_get_name(args.buf)
+      local root_dir = find_root(fname)
+      local is_project = root_dir ~= nil
+      
+      -- Check if LSP is already starting for this root_dir
+      if is_project and lsp_starting[root_dir] then
         return
       end
 
@@ -406,9 +424,9 @@ function M.setup(opts)
         track_buffer(client, bufnr)
         request_document_diagnostics(client, bufnr)
         
-        -- Setup smart loading triggers
+        -- Setup workspace loading for project buffers
         if is_project then
-          workspace.setup_smart_load_triggers(client, bufnr, root_dir)
+          workspace.setup_for_buffer(client, bufnr, root_dir)
         end
 
         if user_on_attach then
@@ -533,11 +551,8 @@ function M.setup(opts)
 
         local init_options_json = vim.fn.json_encode(init_options_table)
 
-        -- Prefer Bun over Node.js for better performance
+        -- Use Node.js (Bun has compatibility issues with worker threads)
         local runtime = 'node'
-        if vim.fn.executable('bun') == 1 then
-          runtime = 'bun'
-        end
 
         vim.lsp.start({
           name = 'mlua',
@@ -563,17 +578,21 @@ function M.setup(opts)
         })
       end
       
-      -- Start LSP immediately with current buffer, scan workspace in background
+      -- Start LSP immediately - simple approach like VS Code
       if is_project then
-        -- Load entry items first (needed for LSP initialization)
+        lsp_starting[root_dir] = true
+        
+        -- Load entry items (needed for LSP initialization)
         entries.collect_entry_items_async(installed_dir, root_dir, function(entry_items)
           vim.schedule(function()
-            -- Start LSP with current buffer + entries
+            -- Start LSP with just current buffer + entries (like VS Code)
             start_lsp_with_data({}, entry_items)
             
-            -- Scan workspace paths in background (no content reading)
-            workspace.scan_workspace_paths_async(root_dir, function(file_paths)
-              vim.notify(string.format("✓ Indexed %d files for smart loading", #file_paths), vim.log.levels.INFO)
+            lsp_starting[root_dir] = false
+            
+            -- Build file index for workspace awareness (async, non-blocking)
+            workspace.build_workspace_index_async(root_dir, function(file_count)
+              vim.notify(string.format("✓ Workspace indexed: %d files", file_count), vim.log.levels.INFO)
             end)
           end)
         end)
@@ -713,7 +732,7 @@ vim.api.nvim_create_user_command('MluaRestart', function()
     vim.cmd('edit')
   end, 500)
 end, { desc = 'Restart mLua language server' })
-vim.api.nvim_create_user_command('MluaSmartLoad', function()
+vim.api.nvim_create_user_command('MluaLoadRelated', function()
   local bufnr = vim.api.nvim_get_current_buf()
   local clients = vim.lsp.get_clients({ name = 'mlua', bufnr = bufnr })
   if #clients == 0 then
@@ -730,28 +749,13 @@ vim.api.nvim_create_user_command('MluaSmartLoad', function()
     return
   end
   
-  local count = workspace.smart_load_dependencies(client.id, bufnr, root_dir)
-  if count == 0 then
-    vim.notify("No new files to load", vim.log.levels.INFO)
-  end
-end, { desc = 'Manually trigger smart loading for current buffer' })
+  workspace.load_related_files(client.id, bufnr, root_dir)
+end, { desc = 'Load related files based on current buffer' })
+
 vim.api.nvim_create_user_command('MluaIndexStatus', function()
-  local bufnr = vim.api.nvim_get_current_buf()
-  local fname = vim.api.nvim_buf_get_name(bufnr)
-  local root_dir = find_root(fname)
-  
-  if not root_dir then
-    vim.notify("Not in an mLua project workspace", vim.log.levels.WARN)
-    return
-  end
-  
-  local status = workspace.get_status(root_dir)
-  
-  vim.notify(string.format(
-    "Index Status:\n  Indexed: %d files\n  Loaded: %d files\n  Names: %d\n  Prefixes: %d",
-    status.indexed, status.loaded, status.names, status.prefixes
-  ), vim.log.levels.INFO)
+  vim.notify("Workspace index status: (simplified version)", vim.log.levels.INFO)
 end, { desc = 'Show workspace indexing status' })
+
 vim.api.nvim_create_user_command('MluaDebug', function()
   require('mlua.debug').check_status()
 end, { desc = 'Show mLua LSP debug information' })
