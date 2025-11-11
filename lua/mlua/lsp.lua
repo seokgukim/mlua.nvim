@@ -98,7 +98,9 @@ local function find_root(fname)
 end
 
 M.config = {
-  install_dir = vim.fn.expand("~/.local/share/nvim/mlua-lsp"),
+  install_dir = vim.fn.has('win32') == 1 
+    and vim.fn.expand("~/AppData/Local/nvim-data/mlua-lsp")
+    or vim.fn.expand("~/.local/share/nvim/mlua-lsp"),
   publisher = "msw",
   extension = "mlua",
 }
@@ -331,6 +333,9 @@ function M.setup(opts)
     group = group,
     pattern = "*.mlua",
     callback = function(args)
+      -- Show version message only once when first mlua file is opened
+      vim.notify_once("mLua LSP v" .. installed_version .. " configured", vim.log.levels.INFO)
+      
       if not vim.api.nvim_buf_is_loaded(args.buf) then
         return
       end
@@ -602,14 +607,13 @@ function M.setup(opts)
       end
     end,
   })
-
-  vim.notify_once("mLua LSP v" .. installed_version .. " configured", vim.log.levels.INFO)
 end
 
 -- Install Tree-sitter parser and queries
 function M.install_treesitter()
   local parser_dir = vim.fn.expand("~/tree-sitter-mlua")
-  local parser_path = vim.fn.stdpath("data") .. "/site/parser/mlua.so"
+  local parser_ext = vim.fn.has('win32') == 1 and "dll" or "so"
+  local parser_path = vim.fn.stdpath("data") .. "/site/parser/mlua." .. parser_ext
   local queries_dir = vim.fn.stdpath("data") .. "/site/queries/mlua"
   
   -- Check if parser repo exists, if not, clone it

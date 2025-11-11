@@ -31,6 +31,24 @@ function M.detect_node_platform()
   return node_platform_cache
 end
 
+-- Normalize path for cross-platform compatibility
+function M.normalize_path(path)
+  if not path or path == '' then
+    return path
+  end
+  
+  -- Expand and get absolute path
+  local expanded = vim.fn.expand(path)
+  local absolute = vim.fn.fnamemodify(expanded, ':p')
+  
+  -- On Windows, ensure forward slashes for URIs
+  if vim.fn.has('win32') == 1 then
+    absolute = absolute:gsub('\\', '/')
+  end
+  
+  return absolute
+end
+
 function M.normalize_for_node(path)
   if not path or path == '' then
     return path
