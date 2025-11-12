@@ -620,106 +620,92 @@ function M.install_treesitter()
   if vim.fn.isdirectory(parser_dir) == 0 then
     vim.notify("Cloning tree-sitter-mlua repository...", vim.log.levels.INFO)
     local clone_cmd = string.format(
-      'git clone https://github.com/seokgukim/tree-sitter-mlua.git "%s" 2>&1',
+      'git clone https://github.com/seokgukim/tree-sitter-mlua.git "%s"',
       parser_dir
     )
-    local handle = io.popen(clone_cmd)
-    local clone_output = handle:read("*a")
-    local success = handle:close()
-    
-    if not success then
-      vim.notify("Failed to clone repository:\n" .. clone_output, vim.log.levels.ERROR)
+    local result = vim.fn.system(clone_cmd)
+    if vim.v.shell_error ~= 0 then
+      vim.notify("Failed to clone repository:\n" .. result, vim.log.levels.ERROR)
       return false
     end
-    vim.notify("✓ Repository cloned successfully", vim.log.levels.INFO)
+    vim.notify("✓ Repository cloned", vim.log.levels.INFO)
   end
 
   vim.notify("Setting up Tree-sitter parser for mLua...", vim.log.levels.INFO)
 
-  -- Check if npm is installed
-  local npm_check = io.popen("command -v npm 2>&1")
-  local npm_path = npm_check:read("*a")
-  npm_check:close()
-  
-  if npm_path == "" then
-    vim.notify("Error: npm not found. Please install Node.js and npm first.", vim.log.levels.ERROR)
-    return false
-  end
-
-  -- Install npm dependencies
-  vim.notify("Installing npm dependencies...", vim.log.levels.INFO)
-  local npm_install_cmd = string.format('cd "%s" && npm install 2>&1', parser_dir)
-  local npm_handle = io.popen(npm_install_cmd)
-  local npm_output = npm_handle:read("*a")
-  local npm_success = npm_handle:close()
-  
-  if not npm_success then
-    vim.notify("Failed to install npm dependencies:\n" .. npm_output, vim.log.levels.ERROR)
-    return false
-  end
-  vim.notify("✓ Dependencies installed", vim.log.levels.INFO)
-
-  -- Generate parser
-  vim.notify("Generating parser...", vim.log.levels.INFO)
-  local generate_cmd = string.format('cd "%s" && npx tree-sitter generate 2>&1', parser_dir)
-  local gen_handle = io.popen(generate_cmd)
-  local gen_output = gen_handle:read("*a")
-  local gen_success = gen_handle:close()
-  
-  if not gen_success then
-    vim.notify("Failed to generate parser:\n" .. gen_output, vim.log.levels.ERROR)
-    return false
-  end
-  vim.notify("✓ Parser generated", vim.log.levels.INFO)
-
-  -- Compile parser
-  vim.notify("Compiling parser...", vim.log.levels.INFO)
+  -- Ensure parser directory exists
   vim.fn.mkdir(vim.fn.stdpath("data") .. "/site/parser", "p")
-  local compile_cmd = string.format(
-    'cd "%s" && cc -o "%s" -I./src src/parser.c -shared -Os -lstdc++ -fPIC 2>&1',
-    parser_dir,
-    parser_path
-  )
-  
-  local compile_handle = io.popen(compile_cmd)
-  local compile_output = compile_handle:read("*a")
-  local compile_success = compile_handle:close()
 
-  if not compile_success or compile_output:match("error") then
-    vim.notify("Failed to compile parser:\n" .. compile_output, vim.log.levels.ERROR)
+  -- Compile parser directly (no need for npm install, parser.c already exists)
+  vim.notify("Compiling parser...", vim.log.levels.INFO)
+  local compile_cmd
+  if vim.fn.has('win32') == 1 then
+    -- Windows: use cl.exe (MSVC) or gcc if available
+    if vim.fn.executable("cl") == 1 then
+      compile_cmd = string.format(
+        'cl /LD /I"%s\\src" "%s\\src\\parser.c" /Fe:"%s"',
+        parser_dir,
+        parser_dir,
+        parser_path
+      )
+    elseif vim.fn.executable("gcc") == 1 then
+      compile_cmd = string.format(
+        'gcc -o "%s" -I"%s/src" "%s/src/parser.c" -shared -Os -fPIC',
+        parser_path,
+        parser_dir,
+        parser_dir
+      )
+    else
+      vim.notify("No C compiler found. Install MSVC (cl) or MinGW (gcc).", vim.log.levels.ERROR)
+      return false
+    end
+  else
+    compile_cmd = string.format(
+      'cc -o "%s" -I"%s/src" "%s/src/parser.c" -shared -Os -lstdc++ -fPIC',
+      parser_path,
+      parser_dir,
+      parser_dir
+    )
+  end
+  
+  local compile_result = vim.fn.system(compile_cmd)
+  if vim.v.shell_error ~= 0 then
+    vim.notify("Compilation failed:\n" .. compile_result, vim.log.levels.ERROR)
     return false
   end
-  vim.notify("✓ Parser compiled", vim.log.levels.INFO)
 
-  -- Create queries directory and symlink
-  vim.notify("Installing highlight queries...", vim.log.levels.INFO)
+  -- Verify parser file was created
+  if vim.fn.filereadable(parser_path) == 0 then
+    vim.notify("Parser file not created at: " .. parser_path, vim.log.levels.ERROR)
+    return false
+  end
+
+  -- Install queries
+  vim.notify("Installing queries...", vim.log.levels.INFO)
   vim.fn.mkdir(queries_dir, "p")
   local highlights_src = parser_dir .. "/queries/highlights.scm"
   local highlights_dst = queries_dir .. "/highlights.scm"
   
-  -- Remove existing symlink/file
-  if vim.fn.filereadable(highlights_dst) == 1 or vim.fn.isdirectory(highlights_dst) == 1 then
-    os.remove(highlights_dst)
-  end
-  
-  -- Create symlink
-  local symlink_cmd
-  if vim.fn.has("win32") == 1 then
-    symlink_cmd = string.format('mklink "%s" "%s"', highlights_dst, highlights_src)
+  -- Copy query file
+  local copy_cmd
+  if vim.fn.has('win32') == 1 then
+    copy_cmd = string.format('copy /Y "%s" "%s"', highlights_src:gsub("/", "\\"), highlights_dst:gsub("/", "\\"))
   else
-    symlink_cmd = string.format('ln -sf "%s" "%s"', highlights_src, highlights_dst)
+    copy_cmd = string.format('cp "%s" "%s"', highlights_src, highlights_dst)
   end
   
-  os.execute(symlink_cmd)
-  vim.notify("✓ Queries installed", vim.log.levels.INFO)
+  local copy_result = vim.fn.system(copy_cmd)
+  if vim.v.shell_error ~= 0 then
+    vim.notify("Failed to copy queries:\n" .. copy_result, vim.log.levels.ERROR)
+    return false
+  end
 
-  vim.notify("", vim.log.levels.INFO)
   vim.notify("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", vim.log.levels.INFO)
   vim.notify("✓ Tree-sitter setup complete!", vim.log.levels.INFO)
   vim.notify("  Parser: " .. parser_path, vim.log.levels.INFO)
   vim.notify("  Queries: " .. highlights_dst, vim.log.levels.INFO)
   vim.notify("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", vim.log.levels.INFO)
-  vim.notify("Restart Neovim to activate Tree-sitter highlighting.", vim.log.levels.WARN)
+  vim.notify("Restart Neovim to activate highlighting.", vim.log.levels.WARN)
   
   return true
 end

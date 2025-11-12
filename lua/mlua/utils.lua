@@ -37,9 +37,18 @@ function M.normalize_path(path)
     return path
   end
   
-  -- Expand and get absolute path
-  local expanded = vim.fn.expand(path)
-  local absolute = vim.fn.fnamemodify(expanded, ':p')
+  -- Check if already absolute (Windows: C:/ or C:\ or UNC; Unix: starts with /)
+  local is_absolute = path:match("^[A-Za-z]:[/\\]") or path:match("^/") or path:match("^\\\\")
+  
+  local absolute
+  if is_absolute then
+    -- Already absolute, use it directly (don't expand, it can add extensions)
+    absolute = path
+  else
+    -- Expand and make it absolute
+    local expanded = vim.fn.expand(path)
+    absolute = vim.fn.fnamemodify(expanded, ':p')
+  end
   
   -- On Windows, ensure forward slashes for URIs
   if vim.fn.has('win32') == 1 then

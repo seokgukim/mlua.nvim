@@ -25,9 +25,10 @@ function M.build_workspace_index_async(root_dir, callback)
   -- Use different command for Windows
   local cmd
   if vim.fn.has('win32') == 1 then
-    -- PowerShell command for Windows
-    cmd = { 'powershell', '-NoProfile', '-Command',
-      string.format('Get-ChildItem -Path "%s" -Filter *.mlua -Recurse -File | ForEach-Object { $_.FullName }', root_dir)
+    -- PowerShell command for Windows - convert forward slashes back to backslashes for PowerShell
+    local ps_path = root_dir:gsub('/', '\\')
+    cmd = { 'powershell.exe', '-NoProfile', '-Command',
+      string.format('Get-ChildItem -Path "%s" -Filter *.mlua -Recurse -File | ForEach-Object { $_.FullName }', ps_path)
     }
   else
     -- find command for Unix/Linux/macOS
@@ -41,6 +42,8 @@ function M.build_workspace_index_async(root_dir, callback)
         
         local paths = {}
         for _, line in ipairs(data) do
+          -- Clean the line - remove any whitespace including \r\n
+          line = line:gsub("^%s+", ""):gsub("%s+$", "")
           if line ~= '' then
             -- Normalize path for consistency
             local normalized = utils.normalize_path(line)
@@ -75,6 +78,23 @@ function M.build_workspace_index_async(root_dir, callback)
         if callback then
           vim.schedule(function()
             callback(total_files)
+          end)
+        end
+      end,
+      on_stderr = function(_, data)
+        if data and #data > 0 then
+          local err = table.concat(data, "\n")
+          if err ~= "" then
+            vim.schedule(function()
+              vim.notify("Workspace index error: " .. err, vim.log.levels.ERROR)
+            end)
+          end
+        end
+      end,
+      on_exit = function(_, exit_code)
+        if exit_code ~= 0 then
+          vim.schedule(function()
+            vim.notify("Workspace indexing failed with code: " .. exit_code, vim.log.levels.WARN)
           end)
         end
       end,
@@ -170,23 +190,47 @@ function M.load_file(client_id, file_path)
   
   local normalized_path = utils.normalize_path(file_path)
   
+  -- Clean the path - remove any potential control characters
+  normalized_path = normalized_path:gsub("[\r\n\t]", "")
+  
   -- Check if already loaded
   local client_loaded = loaded_files[client_id] or {}
   if client_loaded[normalized_path] then
     return false
   end
   
-  -- Read file content
-  if vim.fn.filereadable(normalized_path) ~= 1 then
-    return false
+  -- For file operations on Windows, we need the original path format
+  -- vim.fn.filereadable and file reading work better with native paths
+  local read_path = normalized_path  -- Use normalized path (already absolute)
+  if vim.fn.has('win32') == 1 then
+    -- Convert forward slashes to backslashes for Windows file operations
+    read_path = normalized_path:gsub('/', '\\')
   end
   
-  local content = utils.read_text_file(normalized_path)
+  -- Read file content
+  -- Try multiple path formats for Windows compatibility
+  local test_paths = { read_path, normalized_path }
+  local content = nil
+  local working_path = nil
+  local last_error = nil
+  
+  for _, test_path in ipairs(test_paths) do
+    local file, err = io.open(test_path, 'r')
+    if file then
+      content = file:read('*all')
+      file:close()
+      working_path = test_path
+      break
+    else
+      last_error = err
+    end
+  end
+  
   if not content then
     return false
   end
   
-  -- Create proper file:// URI
+  -- Create proper file:// URI (always uses forward slashes)
   local uri = vim.uri_from_fname(normalized_path)
   local client = vim.lsp.get_client_by_id(client_id)
   if not client then
@@ -258,6 +302,9 @@ end
 
 -- Find related files based on buffer content
 function M.load_related_files(client_id, bufnr, root_dir, line_numbers)
+  -- Normalize root_dir for consistent lookup (especially important on Windows)
+  root_dir = utils.normalize_path(root_dir)
+  
   local index = workspace_index[root_dir]
   if not index then
     return
@@ -283,9 +330,21 @@ function M.load_related_files(client_id, bufnr, root_dir, line_numbers)
   -- Extract tokens from the specified lines
   local tokens = extract_tokens_from_lines(lines)
   
+  if next(tokens) == nil then
+    -- No tokens found, nothing to do
+    return
+  end
+  
+  -- Show what tokens were found
+  local token_list = {}
+  for token in pairs(tokens) do
+    table.insert(token_list, token)
+  end
+  
   -- Find and load relevant chunks on-demand (based on tokens from the specified lines)
   -- Limit to maximum 2 chunks per trigger to avoid excessive loading
   local relevant_chunks = find_relevant_chunks(root_dir, tokens)
+  
   local chunks_loaded = 0
   local max_chunks = 2
   for _, chunk_index in ipairs(relevant_chunks) do
@@ -398,6 +457,9 @@ function M.setup_for_buffer(client, bufnr, root_dir)
     callback = function()
       if #modified_lines > 0 then
         M.load_related_files(client.id, bufnr, root_dir, modified_lines)
+      else
+        -- Fallback: use current cursor line if no modified lines tracked
+        M.load_related_files(client.id, bufnr, root_dir, nil)
       end
     end,
   })

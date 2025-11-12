@@ -30,7 +30,6 @@ local function setup_treesitter()
 
 	local ok, parsers = pcall(require, "nvim-treesitter.parsers")
 	if not ok then
-		vim.notify("nvim-treesitter not found, Tree-sitter support disabled", vim.log.levels.WARN)
 		return false
 	end
 
@@ -75,7 +74,6 @@ local function setup_treesitter()
 
 		return true
 	else
-		vim.notify("mLua parser not found at " .. parser_path .. "\nPlease install tree-sitter-mlua", vim.log.levels.WARN)
 		return false
 	end
 end
@@ -208,7 +206,7 @@ function M.check_treesitter()
 		info.query_captures = #query.captures
 	end
 	
-	-- Print info
+	-- Print info:MluaTSInstall
 	print("=== mLua Tree-sitter Status ===")
 	for k, v in pairs(info) do
 		print(string.format("%s: %s", k, vim.inspect(v)))
