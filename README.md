@@ -1,12 +1,12 @@
 # mLua.nvim
 
 ```
-        .__                                .__         
-  _____ |  |  __ _______         _______  _|__| _____  
- /     \|  | |  |  \__  \       /    \  \/ /  |/     \ 
+        .__                                .__
+  _____ |  |  __ _______         _______  _|__| _____
+ /     \|  | |  |  \__  \       /    \  \/ /  |/     \
 |  Y Y  \  |_|  |  // __ \_    |   |  \   /|  |  Y Y  \
 |__|_|  /____/____/(____  / /\ |___|  /\_/ |__|__|_|  /
-      \/                \/  \/      \/              \/ 
+      \/                \/  \/      \/              \/
 ```
 
 Neovim plugin for [mLua](https://marketplace.visualstudio.com/items?itemName=msw.mlua) language support - the scripting language for MapleStory Worlds.
@@ -16,7 +16,6 @@ This is a wrapper plugin for the original mLua extension by MapleStory Worlds te
 Visit the MapleStory Worlds [mLua documentation](https://maplestoryworlds-creators.nexon.com/en/docs?postId=1287) for language details.
 
 For more information, see the `./doc/mlua.nvim.txt` file.
-
 
 ## Features
 
@@ -30,9 +29,8 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 ## Requirements
 
 - **Neovim** >= 0.9.0
-- **Node.js** or **Bun** (for running the language server)
+- **Node.js** (for running the language server)
 - [mLua LSP](https://github.com/seokgukim/mlua-lsp) (you can automatically install it to `~/.local/share/nvim/mlua-lsp` by running `:MluaInstall` command)
-- Optional: **fd** or **ripgrep** (for faster file searching)
 - Optional: [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) for Tree-sitter support
 - Optional: [nvim-cmp](https://github.com/hrsh7th/nvim-cmp) for enhanced autocompletion
 - Optional: [tree-sitter-mlua](https://github.com/seokgukim/tree-sitter-mlua) for Tree-sitter parser
@@ -60,7 +58,6 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 }
 ```
 
-
 ## Tree-sitter Parser Installation
 
 For enhanced syntax highlighting with Tree-sitter, simply run:
@@ -70,6 +67,7 @@ For enhanced syntax highlighting with Tree-sitter, simply run:
 ```
 
 This command will automatically:
+
 - Clone the [tree-sitter-mlua](https://github.com/seokgukim/tree-sitter-mlua) repository
 - Install npm dependencies
 - Generate the parser
@@ -77,9 +75,10 @@ This command will automatically:
 - Set up highlight queries
 
 **Requirements:**
+
 - Git
 - Node.js and npm
-- C compiler (gcc or clang)
+- C compiler (gcc or cland, cl.exe on Windows)
 
 **Note:** Restart Neovim after installation to activate Tree-sitter highlighting.
 
@@ -94,6 +93,9 @@ require("mlua").setup({
     cmd = nil, -- Auto-detected from LSP module
     capabilities = nil, -- Will use nvim-cmp capabilities if available
     on_attach = nil, -- Optional: your custom on_attach function
+    max_matches = 3, -- Max fuzzy matches per token
+    max_modified_lines = 5, -- Max modified lines to consider for re-indexing
+    trigger_count = 4, -- Triggers load file after N characters typed
   },
   treesitter = {
     enabled = true,
@@ -108,7 +110,7 @@ The plugin uses an **event-driven approach** similar to VS Code:
 
 1. **On file open**: LSP starts with minimal data (current file + predefines)
 2. **Workspace indexing**: Files are indexed in background (basename → path mapping)
-3. **On InsertLeave**: Plugin extracts tokens (class names, types) from your code
+3. **On InsertLeave or type several characters**: Plugin extracts tokens (class names, types) from your code
 4. **Fuzzy matching**: Tokens are matched against indexed files using fuzzy search
 5. **Load via didOpen**: Matched files are sent to LSP for cross-file features
 
@@ -141,27 +143,27 @@ require("mlua").setup({
 
 ### LSP Management
 
-| Command | Description |
-|---------|-------------|
-| `:MluaInstall` | Install mLua language server |
-| `:MluaUpdate` | Update mLua language server to latest version |
-| `:MluaCheckVersion` | Check installed vs latest LSP version |
-| `:MluaUninstall` | Uninstall mLua language server |
-| `:MluaTSInstall` | Automatically install Tree-sitter parser (clone, build, setup) |
-| `:MluaRestart` | Restart the language server |
+| Command             | Description                                                    |
+| ------------------- | -------------------------------------------------------------- |
+| `:MluaInstall`      | Install mLua language server                                   |
+| `:MluaUpdate`       | Update mLua language server to latest version                  |
+| `:MluaCheckVersion` | Check installed vs latest LSP version                          |
+| `:MluaUninstall`    | Uninstall mLua language server                                 |
+| `:MluaTSInstall`    | Automatically install Tree-sitter parser (clone, build, setup) |
+| `:MluaRestart`      | Restart the language server                                    |
 
 ### Buffer-local LSP Commands
 
 When a `.mlua` file is opened with LSP attached, these commands become available:
 
-| Command | Description |
-|---------|-------------|
-| `:MluaDefinition` | Go to definition |
-| `:MluaReferences` | Find references |
-| `:MluaHover` | Show hover information |
-| `:MluaRename` | Rename symbol under cursor |
-| `:MluaFormat` | Format current document |
-| `:MluaToggleInlayHints` | Toggle inlay hints on/off |
+| Command                 | Description                |
+| ----------------------- | -------------------------- |
+| `:MluaDefinition`       | Go to definition           |
+| `:MluaReferences`       | Find references            |
+| `:MluaHover`            | Show hover information     |
+| `:MluaRename`           | Rename symbol under cursor |
+| `:MluaFormat`           | Format current document    |
+| `:MluaToggleInlayHints` | Toggle inlay hints on/off  |
 
 **Note:** No keybindings are set by default. You can map these commands to your preferred keys:
 
@@ -173,14 +175,14 @@ vim.api.nvim_create_autocmd("LspAttach", {
     if client and client.name == "mlua" then
       local bufnr = args.buf
       local opts = { buffer = bufnr, noremap = true, silent = true }
-      
+
       -- Navigation
       vim.keymap.set("n", "gd", "<cmd>MluaDefinition<cr>", opts)
       vim.keymap.set("n", "gr", "<cmd>MluaReferences<cr>", opts)
-      
+
       -- Information
       vim.keymap.set("n", "K", "<cmd>MluaHover<cr>", opts)
-      
+
       -- Actions
       vim.keymap.set("n", "<space>rn", "<cmd>MluaRename<cr>", opts)
       vim.keymap.set("n", "<space>f", "<cmd>MluaFormat<cr>", opts)
@@ -195,7 +197,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
 The event-driven system is designed to be lightweight and efficient:
 
 - **Fast startup**: Only current file + predefines loaded initially
-- **No polling**: Files load only on `InsertLeave` event
+- **No polling**: Files load only on `InsertLeave` event, or when several types occur of edits are made
 - **Fuzzy matching**: Smart file resolution without exact name matching
 - **No cache eviction**: Once loaded, files stay in memory
 - **Predictable**: You control when files load (by finishing typing)
@@ -259,6 +261,28 @@ mlua.nvim/
 - Code actions
 - Document formatting
 - Inlay hints
+
+## Notes
+
+### Lazy Loading
+
+The plugin uses lazy loading for workspace files to improve performance.
+When you open a file initially, the IntelliSense may show errors for not-yet-loaded information.
+This is resolved automatically as you edit - the plugin loads related files on demand when you finish typing.
+
+### Window Compatibility
+
+Since MapleStory Worlds is designed for Windows, **I strongly recommend running Neovim on Windows natively, not in WSL.**
+Running in WSL can cause significant I/O overhead and delays with the language server.
+
+How do I know? BRUTE FORCE.
+
+### Not Fully Compatible with MSW
+
+This is a personal project and not an official one from the MSW team.
+It does not support debugging features or "Open in MSW Client" functionality.
+
+Someday maybe...
 
 ## Contributing
 

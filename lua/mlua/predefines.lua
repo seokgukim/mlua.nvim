@@ -1,3 +1,4 @@
+
 -- Predefines loader (modules, globalVariables, globalFunctions) with compression
 local utils = require('mlua.utils')
 
@@ -59,26 +60,55 @@ function M.load_predefines(installed_dir)
   end
 
   -- Try to generate predefines if cache doesn't exist
-  local predefines_dir = vim.fn.fnamemodify(installed_dir .. "/extension/scripts/predefines", ':p')
+  -- Use proper path joining to handle Windows path separators correctly
+  local predefines_dir
+  if vim.fs and vim.fs.joinpath then
+    predefines_dir = vim.fs.joinpath(installed_dir, "extension", "scripts", "predefines")
+    predefines_dir = vim.fn.fnamemodify(predefines_dir, ':p')
+  else
+    -- Fallback for older Neovim versions
+    predefines_dir = vim.fn.fnamemodify(installed_dir .. "/extension/scripts/predefines", ':p')
+  end
+  
   if vim.fn.isdirectory(predefines_dir) == 0 then
-    vim.notify("Predefines directory not found", vim.log.levels.WARN)
+    vim.notify("Predefines directory not found: " .. predefines_dir, vim.log.levels.WARN)
     return nil
   end
 
-  local predefines_index = vim.fn.fnamemodify(predefines_dir .. "/out/index.js", ':p')
+  -- Build the index.js path using proper path joining
+  local predefines_index
+  if vim.fs and vim.fs.joinpath then
+    predefines_index = vim.fs.joinpath(predefines_dir, "out", "index.js")
+  else
+    -- Fallback: ensure we handle path separators correctly on Windows
+    predefines_dir = predefines_dir:gsub('\\', '/')
+    predefines_index = predefines_dir .. "/out/index.js"
+  end
+  
+  predefines_index = vim.fn.fnamemodify(predefines_index, ':p')
+  
   if vim.fn.filereadable(predefines_index) == 0 then
-    vim.notify("Predefines index.js not found", vim.log.levels.WARN)
+    vim.notify("Predefines index.js not found: " .. predefines_index, vim.log.levels.WARN)
     return nil
   end
 
   local node_predefines_index = utils.normalize_for_node(predefines_index)
 
+  -- For Node.js require(), use forward slashes (Windows-compatible)
+  local escaped_path = node_predefines_index:gsub('\\', '/')
+  
+  -- IMPORTANT: The index.js exports { Predefines } where Predefines has static methods
+  -- We need to call those methods to get the data:
+  -- - Predefines.modules() → returns array of modules
+  -- - Predefines.globalVariables() → returns array of global variables
+  -- - Predefines.globalFunctions() → returns array of global functions
   local script = table.concat({
-    "const predefines = require('" .. node_predefines_index:gsub("\\", "\\\\") .. "');",
+    "const m = require('" .. escaped_path:gsub("'", "\\'") .. "');",
+    "const P = m.Predefines;",
     "const result = {",
-    "  modules: predefines.modules || [],",
-    "  globalVariables: predefines.globalVariables || [],",
-    "  globalFunctions: predefines.globalFunctions || []",
+    "  modules: P.modules ? P.modules() : [],",
+    "  globalVariables: P.globalVariables ? P.globalVariables() : [],",
+    "  globalFunctions: P.globalFunctions ? P.globalFunctions() : []",
     "};",
     "process.stdout.write(JSON.stringify(result));",
   }, '\n')

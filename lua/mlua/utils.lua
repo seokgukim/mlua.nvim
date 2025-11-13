@@ -4,6 +4,30 @@ local M = {}
 
 local node_platform_cache
 
+
+function M.find_root(fname)
+  local markers = { 'Environment', 'Global', 'map', 'RootDesk', 'ui' }
+  local path = vim.fn.fnamemodify(fname, ':p:h')
+  local home = vim.loop.os_homedir()
+
+  while path ~= home and path ~= '/' do
+    local found_all = true
+    for _, marker in ipairs(markers) do
+      local marker_path = path .. '/' .. marker
+      if vim.fn.isdirectory(marker_path) ~= 1 then
+        found_all = false
+        break
+      end
+    end
+    if found_all then
+      return path
+    end
+    path = vim.fn.fnamemodify(path, ':h')
+  end
+
+  return nil
+end
+
 function M.trim(value)
   if type(value) ~= "string" then
     return value
@@ -58,16 +82,26 @@ function M.normalize_path(path)
   return absolute
 end
 
+-- Normalize path for Node.js require() - handles Windows path separators
 function M.normalize_for_node(path)
   if not path or path == '' then
     return path
   end
 
   local platform = M.detect_node_platform()
-  if platform ~= "win32" then
+  
+  -- On Windows (native Node.js), convert backslashes to forward slashes
+  -- for JavaScript require() statements
+  if platform == "win32" then
+    -- Check if path is already normalized (contains forward slashes)
+    if path:match("^%a:[/\\]") or path:match("^/") then
+      -- Convert backslashes to forward slashes for require()
+      return path:gsub('\\', '/')
+    end
     return path
   end
-
+  
+  -- For non-Windows platforms, try WSL path conversion if available
   if path:match("^%a:[/\\]") then
     return path
   end
@@ -122,11 +156,19 @@ local function ensure_cache_dir(root)
     return nil
   end
 
-  local dir = vim.fn.fnamemodify(root .. "/cache", ':p')
+  local dir
+  if vim.fs and vim.fs.joinpath then
+    dir = vim.fs.joinpath(root, "cache")
+  else
+    dir = root .. "/cache"
+  end
+  
+  dir = vim.fn.fnamemodify(dir, ':p')
   vim.fn.mkdir(dir, 'p')
   return dir
 end
 
+-- Build cache file path with consistent separators
 function M.build_cache_path(root, filename)
   local dir = ensure_cache_dir(root)
   if not dir or dir == '' then
@@ -137,6 +179,9 @@ function M.build_cache_path(root, filename)
     return vim.fs.joinpath(dir, filename)
   end
 
+  -- Ensure consistent forward slashes for path construction
+  -- This is especially important on Windows where fnamemodify may use backslashes
+  dir = dir:gsub('\\', '/')
   return dir .. '/' .. filename
 end
 
@@ -309,6 +354,30 @@ function M.fuzzy_match(pattern, text)
   end
   
   return 0
+end
+
+function M.lower_bound(tbl, target)
+  local low = 1
+  local high = #tbl + 1
+
+  while low < high do
+    local mid = math.floor((low + high) / 2)
+    if tbl[mid] < target then
+      low = mid + 1
+    else
+      high = mid
+    end
+  end
+
+  return low
+end
+
+function M.shuffle_table(t)
+  local n = #t
+  for i = n, 2, -1 do
+    local j = math.random(i)
+    t[i], t[j] = t[j], t[i]
+  end
 end
 
 return M

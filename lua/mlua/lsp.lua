@@ -20,7 +20,12 @@ local function publish_diagnostics(client, uri, diagnostics)
 end
 
 local function request_document_diagnostics(client, bufnr)
-  if not client or not client.supports_method("textDocument/diagnostic") then
+  if not client then
+    return
+  end
+  
+  -- Check if client supports the method using server_capabilities
+  if not (client.server_capabilities and client.server_capabilities.diagnosticProvider) then
     return
   end
 
@@ -32,7 +37,7 @@ local function request_document_diagnostics(client, bufnr)
 
   client.request("textDocument/diagnostic", params, function(err, result)
     if err then
-      vim.notify_once(
+      vim.notify(
         string.format("mLua diagnostics request failed: %s", err.message or tostring(err)),
         vim.log.levels.WARN
       )
@@ -72,29 +77,6 @@ local function check_node_available()
   handle:close()
 
   return result:match("v%d+%.%d+%.%d+") ~= nil
-end
-
-local function find_root(fname)
-  local markers = { 'Environment', 'Global', 'map', 'RootDesk', 'ui' }
-  local path = vim.fn.fnamemodify(fname, ':p:h')
-  local home = vim.loop.os_homedir()
-
-  while path ~= home and path ~= '/' do
-    local found_all = true
-    for _, marker in ipairs(markers) do
-      local marker_path = path .. '/' .. marker
-      if vim.fn.isdirectory(marker_path) ~= 1 then
-        found_all = false
-        break
-      end
-    end
-    if found_all then
-      return path
-    end
-    path = vim.fn.fnamemodify(path, ':h')
-  end
-
-  return nil
 end
 
 M.config = {
@@ -340,21 +322,19 @@ function M.setup(opts)
         return
       end
       
-      -- Check if LSP is already running for this buffer
-      local clients = vim.lsp.get_clients({ name = 'mlua', bufnr = args.buf })
-      if #clients > 0 then
-        -- LSP already attached, just setup triggers for this buffer
-        local client = clients[1]
-        local fname = vim.api.nvim_buf_get_name(args.buf)
-        local root_dir = find_root(fname)
-        if root_dir then
-          workspace.setup_for_buffer(client, args.buf, root_dir)
-        end
-        return
-      end
-      
-      local fname = vim.api.nvim_buf_get_name(args.buf)
-      local root_dir = find_root(fname)
+        -- Check if LSP is already running for this buffer
+        local clients = vim.lsp.get_clients({ name = 'mlua', bufnr = args.buf })
+        if #clients > 0 then
+          -- LSP already attached, just setup triggers for this buffer
+          local client = clients[1]
+          local fname = vim.api.nvim_buf_get_name(args.buf)
+          local root_dir = utils.find_root(fname)
+          if root_dir then
+            workspace.setup_for_buffer(client, args.buf, root_dir, opts.max_matches, opts.max_modified_lines, opts.trigger_count)
+          end
+          return
+        end      local fname = vim.api.nvim_buf_get_name(args.buf)
+      local root_dir = utils.find_root(fname)
       local is_project = root_dir ~= nil
       
       -- Check if LSP is already starting for this root_dir
@@ -363,8 +343,6 @@ function M.setup(opts)
       end
 
       local bufname = vim.api.nvim_buf_get_name(args.buf)
-      local root_dir = opts.root_dir or find_root(bufname)
-      local is_project = root_dir ~= nil
       
       if is_project then
         root_dir = vim.fn.fnamemodify(root_dir, ':p')
@@ -431,7 +409,7 @@ function M.setup(opts)
         
         -- Setup workspace loading for project buffers
         if is_project then
-          workspace.setup_for_buffer(client, bufnr, root_dir)
+          workspace.setup_for_buffer(client, bufnr, root_dir, opts.max_matches, opts.max_modified_lines, opts.trigger_count)
         end
 
         if user_on_attach then
@@ -598,6 +576,11 @@ function M.setup(opts)
             -- Build file index for workspace awareness (async, non-blocking)
             workspace.build_workspace_index_async(root_dir, function(file_count)
               vim.notify(string.format("✓ Workspace indexed: %d files", file_count), vim.log.levels.INFO)
+              -- Get client reference to pass to workspace
+              local client = vim.lsp.get_clients({ name = 'mlua', bufnr = args.buf })[1]
+              if client then
+                workspace.load_related_files(client.id, args.buf, root_dir, -1, opts.max_matches or 3)
+              end
             end)
           end)
         end)
@@ -642,19 +625,43 @@ function M.install_treesitter()
   if vim.fn.has('win32') == 1 then
     -- Windows: use cl.exe (MSVC) or gcc if available
     if vim.fn.executable("cl") == 1 then
+      -- Check for scanner file
+      local scanner_c = parser_dir .. "\\src\\scanner.c"
+      local scanner_cc = parser_dir .. "\\src\\scanner.cc"
+      local scanner_file = ""
+      
+      if vim.fn.filereadable(scanner_c) == 1 then
+        scanner_file = string.format('"%s"', scanner_c)
+      elseif vim.fn.filereadable(scanner_cc) == 1 then
+        scanner_file = string.format('"%s"', scanner_cc)
+      end
+      
       compile_cmd = string.format(
-        'cl /LD /I"%s\\src" "%s\\src\\parser.c" /Fe:"%s"',
+        'cl /O2 /LD /MD /I"%s\\src" "%s\\src\\parser.c" %s /link /out:"%s"',
         parser_dir,
         parser_dir,
+        scanner_file,
         parser_path
       )
     elseif vim.fn.executable("gcc") == 1 then
+      -- Check for scanner file
+      local scanner_c = parser_dir .. "/src/scanner.c"
+      local scanner_cc = parser_dir .. "/src/scanner.cc"
+      local scanner_file = ""
+      
+      if vim.fn.filereadable(scanner_c) == 1 then
+        scanner_file = string.format('"%s"', scanner_c)
+      elseif vim.fn.filereadable(scanner_cc) == 1 then
+        scanner_file = string.format('"%s"', scanner_cc)
+      end
+      
       compile_cmd = string.format(
-        'gcc -o "%s" -I"%s/src" "%s/src/parser.c" -shared -Os -fPIC',
+        'gcc -o "%s" -I"%s/src" "%s/src/parser.c" %s -shared -Os -lstdc++',
         parser_path,
         parser_dir,
-        parser_dir
-      )
+        parser_dir,
+        scanner_file
+    )
     else
       vim.notify("No C compiler found. Install MSVC (cl) or MinGW (gcc).", vim.log.levels.ERROR)
       return false
@@ -722,5 +729,23 @@ vim.api.nvim_create_user_command('MluaRestart', function()
     vim.cmd('edit')
   end, 500)
 end, { desc = 'Restart mLua language server' })
+vim.api.nvim_create_user_command('MluaReloadWorkspace', function()
+  local clients = vim.lsp.get_clients({ name = 'mlua' })
+  for _, client in ipairs(clients) do
+    local tracked = attached_buffers[client.id]
+    if not tracked then
+      return
+    end
+
+    for bufnr in pairs(tracked) do
+      local fname = vim.api.nvim_buf_get_name(bufnr)
+      local root_dir = utils.find_root(fname)
+      if root_dir then
+        workspace.reload_workspace(client, bufnr, root_dir, opt.max_matches)
+      end
+    end
+  end
+end, { desc = 'Reload mLua workspace index' }
+)
 
 return M

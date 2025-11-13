@@ -12,6 +12,9 @@ local default_config = {
 		cmd = nil, -- Auto-detected from LSP module
 		capabilities = nil, -- Will be set from nvim-cmp if available
 		on_attach = nil, -- User callback
+		max_matches = 3, -- Max fuzzy matches per token
+		max_modified_lines = 5, -- Max modified lines to consider for re-indexing
+		trigger_count = 4, -- Triggers load file after N characters typed
 	},
 	treesitter = {
 		enabled = true,
@@ -103,6 +106,9 @@ function M.setup(opts)
 		-- Build LSP config
 		local lsp_config = vim.tbl_deep_extend("force", {
 			capabilities = capabilities,
+			max_matches = M.config.lsp.max_matches,
+			max_modified_lines = M.config.lsp.max_modified_lines,
+			trigger_count = M.config.lsp.trigger_count,
 			on_attach = function(client, bufnr)
 				-- Enable completion triggered by <c-x><c-o>
 				vim.api.nvim_buf_set_option(bufnr, "omnifunc", "v:lua.vim.lsp.omnifunc")
