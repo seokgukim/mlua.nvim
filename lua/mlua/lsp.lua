@@ -625,42 +625,18 @@ function M.install_treesitter()
   if vim.fn.has('win32') == 1 then
     -- Windows: use cl.exe (MSVC) or gcc if available
     if vim.fn.executable("cl") == 1 then
-      -- Check for scanner file
-      local scanner_c = parser_dir .. "\\src\\scanner.c"
-      local scanner_cc = parser_dir .. "\\src\\scanner.cc"
-      local scanner_file = ""
-      
-      if vim.fn.filereadable(scanner_c) == 1 then
-        scanner_file = string.format('"%s"', scanner_c)
-      elseif vim.fn.filereadable(scanner_cc) == 1 then
-        scanner_file = string.format('"%s"', scanner_cc)
-      end
-      
       compile_cmd = string.format(
-        'cl /O2 /LD /MD /I"%s\\src" "%s\\src\\parser.c" %s /link /out:"%s"',
+        'cl /O2 /LD /MD /I"%s\\src" "%s\\src\\parser.c" /link /out:"%s"',
         parser_dir,
         parser_dir,
-        scanner_file,
         parser_path
       )
     elseif vim.fn.executable("gcc") == 1 then
-      -- Check for scanner file
-      local scanner_c = parser_dir .. "/src/scanner.c"
-      local scanner_cc = parser_dir .. "/src/scanner.cc"
-      local scanner_file = ""
-      
-      if vim.fn.filereadable(scanner_c) == 1 then
-        scanner_file = string.format('"%s"', scanner_c)
-      elseif vim.fn.filereadable(scanner_cc) == 1 then
-        scanner_file = string.format('"%s"', scanner_cc)
-      end
-      
       compile_cmd = string.format(
-        'gcc -o "%s" -I"%s/src" "%s/src/parser.c" %s -shared -Os -lstdc++',
+        'gcc -o "%s" -I"%s/src" "%s/src/parser.c" -shared -Os -fPIC',
         parser_path,
         parser_dir,
-        parser_dir,
-        scanner_file
+        parser_dir
     )
     else
       vim.notify("No C compiler found. Install MSVC (cl) or MinGW (gcc).", vim.log.levels.ERROR)
@@ -668,7 +644,7 @@ function M.install_treesitter()
     end
   else
     compile_cmd = string.format(
-      'cc -o "%s" -I"%s/src" "%s/src/parser.c" -shared -Os -lstdc++ -fPIC',
+      'cc -o "%s" -I"%s/src" "%s/src/parser.c" -shared -Os -fPIC',
       parser_path,
       parser_dir,
       parser_dir
