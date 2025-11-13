@@ -151,6 +151,7 @@ require("mlua").setup({
 | `:MluaUninstall`    | Uninstall mLua language server                                 |
 | `:MluaTSInstall`    | Automatically install Tree-sitter parser (clone, build, setup) |
 | `:MluaRestart`      | Restart the language server                                    |
+| `:MluaReloadWorkspace` | Reload all workspace files (re-index and re-load)               |
 
 ### Buffer-local LSP Commands
 

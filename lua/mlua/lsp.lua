@@ -395,13 +395,13 @@ function M.setup(opts)
         register_buffer_cleanup(client.id, bufnr)
       end
 
-      local function default_on_attach(_, bufnr)
-        vim.keymap.set('n', 'gd', vim.lsp.buf.definition, { buffer = bufnr, desc = 'Go to definition' })
-        vim.keymap.set('n', 'K', vim.lsp.buf.hover, { buffer = bufnr, desc = 'Hover' })
-        vim.keymap.set('n', 'gr', vim.lsp.buf.references, { buffer = bufnr, desc = 'References' })
-        vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename, { buffer = bufnr, desc = 'Rename' })
-        vim.keymap.set('n', '<leader>ca', vim.lsp.buf.code_action, { buffer = bufnr, desc = 'Code action' })
-      end
+      -- local function default_on_attach(_, bufnr)
+      --   vim.keymap.set('n', 'gd', vim.lsp.buf.definition, { buffer = bufnr, desc = 'Go to definition' })
+      --   vim.keymap.set('n', 'K', vim.lsp.buf.hover, { buffer = bufnr, desc = 'Hover' })
+      --   vim.keymap.set('n', 'gr', vim.lsp.buf.references, { buffer = bufnr, desc = 'References' })
+      --   vim.keymap.set('n', '<leader>rn', vim.lsp.buf.rename, { buffer = bufnr, desc = 'Rename' })
+      --   vim.keymap.set('n', '<leader>ca', vim.lsp.buf.code_action, { buffer = bufnr, desc = 'Code action' })
+      -- end
 
       local function combined_on_attach(client, bufnr)
         track_buffer(client, bufnr)
@@ -418,7 +418,7 @@ function M.setup(opts)
             vim.notify("mLua on_attach callback failed: " .. tostring(err), vim.log.levels.ERROR)
           end
         else
-          default_on_attach(client, bufnr)
+          -- default_on_attach(client, bufnr)
         end
       end
 
