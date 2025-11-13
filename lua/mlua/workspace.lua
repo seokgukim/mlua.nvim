@@ -322,7 +322,7 @@ function M.load_related_files(client_id, bufnr, root_dir, line_numbers, max_matc
 				local index = ((random_start + i - 2) % #path_fuzzy[root_dir]) + 1
 				local path = path_fuzzy[root_dir][index]
 
-				if path_state[root_dir][path] == true then
+				if path_state[root_dir][path] == false then
 					local basename = vim.fn.fnamemodify(path, ":t"):lower()
 					local score = utils.fuzzy_match(token, basename)
 					if score >= 70 then -- Minimum score threshold
