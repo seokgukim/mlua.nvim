@@ -200,24 +200,24 @@ function M.check_treesitter()
 		parser_path = M.config.treesitter.parser_path,
 		queries_path = M.config.treesitter.parser_path .. "/queries",
 	}
-	
+
 	-- Try to get parser
 	local ok, parser = pcall(vim.treesitter.get_parser, bufnr, "mlua")
 	info.parser_available = ok
-	
+
 	-- Try to get query
 	local query_ok, query = pcall(vim.treesitter.query.get, "mlua", "highlights")
 	info.query_available = query_ok
 	if query_ok and query then
 		info.query_captures = #query.captures
 	end
-	
+
 	-- Print info:MluaTSInstall
 	print("=== mLua Tree-sitter Status ===")
 	for k, v in pairs(info) do
 		print(string.format("%s: %s", k, vim.inspect(v)))
 	end
-	
+
 	-- Try to start Tree-sitter
 	if info.filetype == "mlua" and info.parser_installed then
 		print("\nAttempting to start Tree-sitter...")
