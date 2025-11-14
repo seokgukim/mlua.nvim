@@ -104,13 +104,13 @@ function M.build_workspace_index_async(root_dir, callback)
 			"-NoProfile",
 			"-Command",
 			string.format(
-				'Get-ChildItem -Path "%s" -Filter *.mlua -Recurse -File | ForEach-Object { $_.FullName }',
+				'Get-ChildItem -Path "%s" -Include *.mlua, *.d -Recurse -File | ForEach-Object { $_.FullName }',
 				ps_path
 			),
 		}
 	else
 		-- find command for Unix/Linux/macOS
-		cmd = { "find", root_dir, "-type", "f", "-name", "*.mlua" }
+		cmd = { "find", root_dir, "-type", "f", "(", "-name", "*.mlua", "-o", "-name", "*.d", ")" }
 	end
 
 	vim.fn.jobstart(cmd, {
