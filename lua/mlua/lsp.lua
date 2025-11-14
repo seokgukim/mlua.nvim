@@ -35,7 +35,7 @@ local function request_document_diagnostics(client, bufnr)
 
 	local params = { textDocument = vim.lsp.util.make_text_document_params(bufnr) }
 
-	client.request("textDocument/diagnostic", params, function(err, result)
+	client:request("textDocument/diagnostic", params, function(err, result)
 		if err then
 			vim.notify(
 				string.format("mLua diagnostics request failed: %s", err.message or tostring(err)),

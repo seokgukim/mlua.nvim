@@ -220,7 +220,7 @@ function M.load_file(client_id, file_path)
 	end
 
 	-- Send didOpen to LSP
-	client.notify("textDocument/didOpen", {
+	client:notify("textDocument/didOpen", {
 		textDocument = {
 			uri = uri,
 			languageId = "mlua",
