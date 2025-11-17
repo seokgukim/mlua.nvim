@@ -267,6 +267,10 @@ end
 function M.load_related_files(client_id, bufnr, root_dir, line_numbers, max_matches)
 	-- Normalize root_dir for consistent lookup (especially important on Windows)
 	root_dir = utils.normalize_path(root_dir)
+	if not path_state[root_dir] then
+		-- Workspace not indexed yet
+		return
+	end
 
 	-- Get lines to inspect (either provided line numbers or current cursor line)
 	local lines = {}
