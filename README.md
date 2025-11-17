@@ -9,6 +9,8 @@
       \/                \/  \/      \/              \/
 ```
 
+![mlua demo](https://github.com/user-attachments/assets/0f8f2607-d507-45c1-96e0-27049b8d37bc)
+
 Neovim plugin for [mLua](https://marketplace.visualstudio.com/items?itemName=msw.mlua) language support - the scripting language for MapleStory Worlds.
 
 This is a wrapper plugin for the original mLua extension by MapleStory Worlds team.
