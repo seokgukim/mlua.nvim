@@ -570,6 +570,17 @@ function M.install_treesitter()
 			return false
 		end
 		vim.notify("✓ Repository cloned", vim.log.levels.INFO)
+	else
+		-- Repository exists, pull latest changes
+		vim.notify("Updating tree-sitter-mlua repository...", vim.log.levels.INFO)
+		local pull_cmd = string.format('cd "%s" && git pull', parser_dir)
+		local result = vim.fn.system(pull_cmd)
+		if vim.v.shell_error ~= 0 then
+			vim.notify("Failed to pull updates:\n" .. result, vim.log.levels.WARN)
+			vim.notify("Continuing with existing version...", vim.log.levels.INFO)
+		else
+			vim.notify("✓ Repository updated", vim.log.levels.INFO)
+		end
 	end
 
 	vim.notify("Setting up Tree-sitter parser for mLua...", vim.log.levels.INFO)
