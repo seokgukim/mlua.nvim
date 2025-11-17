@@ -8,52 +8,6 @@ local M = {}
 local attached_buffers = {}
 local lsp_starting = {} -- Track if LSP is starting for a root_dir
 
-local function publish_diagnostics(client, uri, diagnostics)
-	if not diagnostics then
-		return
-	end
-
-	local handler = vim.lsp.handlers["textDocument/publishDiagnostics"]
-	if handler then
-		handler(nil, { uri = uri, diagnostics = diagnostics }, { client_id = client.id })
-	end
-end
-
-local function request_document_diagnostics(client, bufnr)
-	if not client then
-		return
-	end
-
-	-- Check if client supports the method using server_capabilities
-	if not (client.server_capabilities and client.server_capabilities.diagnosticProvider) then
-		return
-	end
-
-	if not vim.api.nvim_buf_is_loaded(bufnr) then
-		return
-	end
-
-	local params = { textDocument = vim.lsp.util.make_text_document_params(bufnr) }
-
-	client:request("textDocument/diagnostic", params, function(err, result)
-		if err then
-			vim.notify(
-				string.format("mLua diagnostics request failed: %s", err.message or tostring(err)),
-				vim.log.levels.WARN
-			)
-			return
-		end
-
-		if not result then
-			return
-		end
-
-		if result.kind == "full" then
-			publish_diagnostics(client, params.textDocument.uri, result.items)
-		end
-	end, bufnr)
-end
-
 local function register_buffer_cleanup(client_id, bufnr)
 	vim.api.nvim_create_autocmd("BufUnload", {
 		buffer = bufnr,
@@ -372,22 +326,13 @@ function M.setup(opts)
 				}
 
 			local function refresh_attached_diagnostics(client)
-				local tracked = attached_buffers[client.id]
-				if not tracked then
-					return
-				end
-
-				for bufnr in pairs(tracked) do
-					request_document_diagnostics(client, bufnr)
-				end
+				-- Diagnostics are handled automatically by the LSP server
+				-- No manual refresh needed
 			end
 
 			local handlers = vim.tbl_extend("force", {
 				["workspace/diagnostic/refresh"] = function(_, _, ctx)
-					local client = vim.lsp.get_client_by_id(ctx.client_id)
-					if client then
-						refresh_attached_diagnostics(client)
-					end
+					-- Let Neovim handle diagnostic refresh automatically
 					return vim.NIL
 				end,
 			}, opts.handlers or {})
@@ -410,7 +355,8 @@ function M.setup(opts)
 
 			local function combined_on_attach(client, bufnr)
 				track_buffer(client, bufnr)
-				request_document_diagnostics(client, bufnr)
+				-- Don't manually request diagnostics - the server will push them automatically
+				-- This prevents duplicate diagnostics from appearing
 
 				-- Setup workspace loading for project buffers
 				if is_project then
