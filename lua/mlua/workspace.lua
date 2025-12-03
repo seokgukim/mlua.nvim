@@ -73,6 +73,8 @@ local loaded_files = {}
 -- Workspace file index: root_dir -> { basename (lowercase) -> { full paths } }
 local path_state = {}
 local path_fuzzy = {}
+local filename_index = {}
+local trigram_index = {}
 
 -- Build workspace file index (async, non-blocking)
 function M.build_workspace_index_async(root_dir, callback)
@@ -93,6 +95,8 @@ function M.build_workspace_index_async(root_dir, callback)
 		return
 	end
 	path_state[root_dir] = {}
+	filename_index[root_dir] = {}
+	trigram_index[root_dir] = {}
 
 	-- Use different command for Windows
 	local cmd
@@ -134,8 +138,26 @@ function M.build_workspace_index_async(root_dir, callback)
 			path_fuzzy[root_dir] = paths
 
 			-- Split paths into chunks for on-demand loading
-			for _, path in ipairs(paths) do
+			for i, path in ipairs(paths) do
 				path_state[root_dir][path] = false -- Mark as not loaded
+				
+				-- Index by filename (without extension) for exact matches
+				local name = vim.fn.fnamemodify(path, ":t:r"):lower()
+				if not filename_index[root_dir][name] then
+					filename_index[root_dir][name] = {}
+				end
+				table.insert(filename_index[root_dir][name], path)
+
+				-- Build Trigram Index for fuzzy matching
+				if #name >= 3 then
+					for j = 1, #name - 2 do
+						local trigram = name:sub(j, j + 2)
+						if not trigram_index[root_dir][trigram] then
+							trigram_index[root_dir][trigram] = {}
+						end
+						table.insert(trigram_index[root_dir][trigram], i) -- Store index in path_fuzzy
+					end
+				end
 			end
 
 			if callback then
@@ -264,7 +286,7 @@ local function extract_tokens_from_lines(lines)
 end
 
 -- Find related files based on buffer content
-function M.load_related_files(client_id, bufnr, root_dir, line_numbers, max_matches)
+function M.load_related_files(client_id, bufnr, root_dir, line_numbers, max_matches, exact_only)
 	-- Normalize root_dir for consistent lookup (especially important on Windows)
 	root_dir = utils.normalize_path(root_dir)
 	if not path_state[root_dir] then
@@ -307,32 +329,87 @@ function M.load_related_files(client_id, bufnr, root_dir, line_numbers, max_matc
 	-- For each token, find matching files using fuzzy matching
 	for token in pairs(tokens) do
 		-- First try exact match in index
-		local exact_paths = path_state[root_dir] and path_state[root_dir][token]
+		local exact_paths = filename_index[root_dir] and filename_index[root_dir][token]
 		if exact_paths then
 			for _, path in ipairs(exact_paths) do
 				table.insert(matches, { path = path, score = 100 })
 			end
-		else
+		elseif not exact_only then
 			-- Fuzzy match against all files in index
 			local max_matches = max_matches or 3 -- Default max matches per token
 			local match_count = 0
-			local random_start = math.random(#path_fuzzy[root_dir])
-			for i = 1, #path_fuzzy[root_dir] do
-				if match_count >= max_matches then
-					break
+
+			-- Use Trigram Index for tokens >= 3 chars
+			if #token >= 3 then
+				local candidates = {} -- path_index -> count
+				local has_trigrams = false
+
+				for i = 1, #token - 2 do
+					local trigram = token:sub(i, i + 2)
+					local matches = trigram_index[root_dir] and trigram_index[root_dir][trigram]
+					if matches then
+						has_trigrams = true
+						for _, path_idx in ipairs(matches) do
+							candidates[path_idx] = (candidates[path_idx] or 0) + 1
+						end
+					end
 				end
 
-				-- Randomize start index for fuzzy matching
-				local index = ((random_start + i - 2) % #path_fuzzy[root_dir]) + 1
-				local path = path_fuzzy[root_dir][index]
+				if has_trigrams then
+					-- Sort candidates by number of matching trigrams
+					local sorted_candidates = {}
+					for path_idx, count in pairs(candidates) do
+						table.insert(sorted_candidates, { idx = path_idx, count = count })
+					end
+					table.sort(sorted_candidates, function(a, b)
+						return a.count > b.count
+					end)
 
-				if path_state[root_dir][path] == false then
-					local basename = vim.fn.fnamemodify(path, ":t"):lower()
-					local score = utils.fuzzy_match(token, basename)
-					if score >= 70 then -- Minimum score threshold
-						table.insert(matches, { path = path, score = score })
-						match_count = match_count + 1
-						path_state[root_dir][path] = true -- Mark as loaded
+					-- Check top candidates
+					local check_limit = 200 -- Check top 200 candidates
+					for i = 1, math.min(#sorted_candidates, check_limit) do
+						if match_count >= max_matches then
+							break
+						end
+
+						local path = path_fuzzy[root_dir][sorted_candidates[i].idx]
+						if path_state[root_dir][path] == false then
+							local basename = path:match("([^/]+)$") or path
+							basename = basename:lower()
+
+							local score = utils.fuzzy_match(token, basename)
+							if score >= 70 then
+								table.insert(matches, { path = path, score = score })
+								match_count = match_count + 1
+								path_state[root_dir][path] = true
+							end
+						end
+					end
+				end
+			else
+				-- Fallback for short tokens: random walk with limit
+				local max_checks = 500
+				local checks = 0
+				local random_start = math.random(#path_fuzzy[root_dir])
+				for i = 1, #path_fuzzy[root_dir] do
+					if match_count >= max_matches or checks >= max_checks then
+						break
+					end
+					checks = checks + 1
+
+					local index = ((random_start + i - 2) % #path_fuzzy[root_dir]) + 1
+					local path = path_fuzzy[root_dir][index]
+
+					if path_state[root_dir][path] == false then
+						local basename = path:match("([^/]+)$") or path
+						basename = basename:lower()
+
+						local score = utils.fuzzy_match(token, basename)
+						if score >= 70 then
+							table.insert(matches, { path = path, score = score })
+							match_count = match_count + 1
+							path_state[root_dir][path] = true
+						end
 					end
 				end
 			end
@@ -433,6 +510,8 @@ function M.reload_workspace(client, bufnr, root_dir, max_matches)
 	-- Clear loaded state for this root_dir
 	path_state[root_dir] = nil
 	path_fuzzy[root_dir] = nil
+	filename_index[root_dir] = nil
+	trigram_index[root_dir] = nil
 	-- Clear loaded files for this client
 	if loaded_files[client.id] then
 		loaded_files[client.id] = {}
@@ -441,7 +520,7 @@ function M.reload_workspace(client, bufnr, root_dir, max_matches)
 	-- Rebuild index
 	M.build_workspace_index_async(root_dir, function(total_files)
 		vim.notify(string.format("Workspace reloaded: %d files indexed", total_files), vim.log.levels.INFO)
-		M.load_related_files(client.id, bufnr, root_dir, -1, max_matches)
+		M.load_related_files(client.id, bufnr, root_dir, -1, max_matches, true)
 	end)
 
 	vim.notify("Workspace reloaded. Files will be re-indexed on demand.", vim.log.levels.INFO)
