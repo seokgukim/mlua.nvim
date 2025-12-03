@@ -41,17 +41,27 @@ M.config = {
 }
 
 function M.get_latest_version()
-	local curl_cmd = string.format(
-		[[
-    curl -s -X POST \
-    -H "Content-Type: application/json" \
-    -H "Accept: application/json;api-version=3.0-preview.1" \
-    -d '{"filters":[{"criteria":[{"filterType":7,"value":"%s.%s"}]}],"flags":914}' \
-    "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
-  ]],
+	local data = string.format(
+		'{"filters":[{"criteria":[{"filterType":7,"value":"%s.%s"}]}],"flags":914}',
 		M.config.publisher,
 		M.config.extension
 	)
+	local curl_cmd
+
+	if vim.fn.has("win32") == 1 then
+		-- Windows: Escape double quotes and use double quotes for the argument
+		data = data:gsub('"', '\\"')
+		curl_cmd = string.format(
+			'curl -s -X POST -H "Content-Type: application/json" -H "Accept: application/json;api-version=3.0-preview.1" -d "%s" "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"',
+			data
+		)
+	else
+		-- Unix: Use single quotes for the argument
+		curl_cmd = string.format(
+			'curl -s -X POST -H "Content-Type: application/json" -H "Accept: application/json;api-version=3.0-preview.1" -d \'%s\' "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"',
+			data
+		)
+	end
 
 	local handle = io.popen(curl_cmd)
 	if not handle then
