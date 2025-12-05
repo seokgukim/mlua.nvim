@@ -550,7 +550,7 @@ function M.setup(opts)
 							-- Get client reference to pass to workspace
 							local client = vim.lsp.get_clients({ name = "mlua", bufnr = args.buf })[1]
 							if client then
-								workspace.load_related_files(client.id, args.buf, root_dir, -1, opts.max_matches or 3)
+								workspace.load_related_files(client.id, args.buf, root_dir, -1, opts.max_matches or 3, true)
 							end
 						end)
 					end)
