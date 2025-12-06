@@ -463,6 +463,14 @@ function M.load_related_files(client_id, bufnr, root_dir, line_numbers, max_matc
 	if loaded_count > 0 then
 		local msg = string.format("Loaded %d related file(s)", loaded_count)
 		vim.notify(msg, vim.log.levels.INFO)
+
+		-- Notify server to refresh diagnostics and semantic tokens
+		-- This ensures the server updates the context with the newly loaded files
+		local client = vim.lsp.get_client_by_id(client_id)
+		if client then
+			client:notify("msw.protocol.refreshDiagnostic", {})
+			client:notify("msw.protocol.refreshSemanticTokens", {})
+		end
 	end
 end
 
