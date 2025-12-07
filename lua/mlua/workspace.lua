@@ -103,6 +103,8 @@ function M.build_workspace_index_async(root_dir, callback)
 		trigram_index[root_dir][string.char(i)] = {}
 	end
 
+	local total_paths = 0
+
 	-- Use different command for Windows
 	local cmd
 	if vim.fn.has("win32") == 1 then
@@ -174,16 +176,12 @@ function M.build_workspace_index_async(root_dir, callback)
 				end
 			end
 
+			total_paths = total_paths + #paths
+
 			-- Sort buckets by length
 			for _, bucket in pairs(path_buckets[root_dir]) do
 				table.sort(bucket, function(a, b)
 					return #a < #b
-				end)
-			end
-
-			if callback then
-				vim.schedule(function()
-					callback(#paths)
 				end)
 			end
 		end,
@@ -202,6 +200,12 @@ function M.build_workspace_index_async(root_dir, callback)
 				vim.schedule(function()
 					vim.notify("Workspace indexing failed with code: " .. exit_code, vim.log.levels.WARN)
 				end)
+			else
+				if callback then
+					vim.schedule(function()
+						callback(total_paths)
+					end)
+				end
 			end
 		end,
 	})
