@@ -322,6 +322,15 @@ function M.setup(opts)
 				root_dir = vim.fn.fnamemodify(bufname, ":p:h")
 			end
 
+			-- Check if a client is already running for this root_dir
+			local existing_clients = vim.lsp.get_clients({ name = "mlua" })
+			for _, client in ipairs(existing_clients) do
+				if client.config.root_dir == root_dir then
+					vim.lsp.buf_attach_client(args.buf, client.id)
+					return
+				end
+			end
+
 			local client_capabilities = opts.capabilities or vim.lsp.protocol.make_client_capabilities()
 			client_capabilities.workspace = client_capabilities.workspace or {}
 			client_capabilities.workspace.diagnostic = client_capabilities.workspace.diagnostic
@@ -550,7 +559,7 @@ function M.setup(opts)
 							-- Get client reference to pass to workspace
 							local client = vim.lsp.get_clients({ name = "mlua", bufnr = args.buf })[1]
 							if client then
-								workspace.load_related_files(client.id, args.buf, root_dir, -1, opts.max_matches or 3)
+								workspace.load_related_files(client.id, args.buf, root_dir, -1, opts.max_matches or 3, true)
 							end
 						end)
 					end)
