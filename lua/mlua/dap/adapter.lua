@@ -198,63 +198,73 @@ function M.connect(host, port, callback)
 		return
 	end
 
-	-- Initialize session
-	session = {
-		socket = nil,
-		receiveBuffer = "",
-		running = true,
-		requestId = 0,
-		pendingRequests = {},
-		currentStack = nil,
-		currentStackFrameId = -1,
-		variableContainers = {},
-		heartbeatTimer = uv.new_timer(),
-		timeoutTimer = uv.new_timer(),
-		onEvent = nil,
-		pendingBreakpoints = {},
-	}
-
-	local socket = uv.new_tcp()
-	session.socket = socket
-
-	socket:connect(host, port, function(err)
-		if err then
-			vim.schedule(function()
-				session = nil
-				callback("Failed to connect: " .. err)
-			end)
+	-- Resolve hostname to IP address (uv.tcp:connect requires IP, not hostname)
+	uv.getaddrinfo(host, nil, { family = "inet" }, function(err, res)
+		if err or not res or #res == 0 then
+			callback("Failed to resolve host: " .. (err or "no addresses found"))
 			return
 		end
 
-		-- Start reading
-		socket:read_start(function(read_err, data)
-			if read_err then
+		local resolved_ip = res[1].addr
+
+		-- Initialize session
+		session = {
+			socket = nil,
+			receiveBuffer = "",
+			running = true,
+			requestId = 0,
+			pendingRequests = {},
+			currentStack = nil,
+			currentStackFrameId = -1,
+			variableContainers = {},
+			heartbeatTimer = uv.new_timer(),
+			timeoutTimer = uv.new_timer(),
+			onEvent = nil,
+			pendingBreakpoints = {},
+		}
+
+		local socket = uv.new_tcp()
+		session.socket = socket
+
+		socket:connect(resolved_ip, port, function(conn_err)
+			if conn_err then
 				vim.schedule(function()
-					vim.notify("mLua debugger: read error - " .. read_err, vim.log.levels.ERROR)
-					M.disconnect()
+					session = nil
+					callback("Failed to connect: " .. conn_err)
 				end)
 				return
 			end
 
-			if data then
-				if session then
-					session.receiveBuffer = session.receiveBuffer .. data
-					processReceiveBuffer()
+			-- Start reading
+			socket:read_start(function(read_err, data)
+				if read_err then
+					vim.schedule(function()
+						vim.notify("mLua debugger: read error - " .. read_err, vim.log.levels.ERROR)
+						M.disconnect()
+					end)
+					return
 				end
-			else
-				-- Connection closed
-				vim.schedule(function()
-					M.disconnect()
-				end)
-			end
-		end)
 
-		-- Start heartbeat and timeout timers
-		startHeartbeat()
-		resetReceiveTimeout()
+				if data then
+					if session then
+						session.receiveBuffer = session.receiveBuffer .. data
+						processReceiveBuffer()
+					end
+				else
+					-- Connection closed
+					vim.schedule(function()
+						M.disconnect()
+					end)
+				end
+			end)
 
-		vim.schedule(function()
-			callback(nil)
+			-- Start heartbeat and timeout timers
+			startHeartbeat()
+			resetReceiveTimeout()
+
+			vim.schedule(function()
+				callback(nil)
+			end)
 		end)
 	end)
 end
