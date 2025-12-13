@@ -28,6 +28,7 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 - 🌳 **Tree-sitter Support** - Syntax highlighting via Tree-sitter parser
 - 📝 **Syntax Highlighting** - Fallback Vim syntax when Tree-sitter is unavailable
 - 🔧 **Filetype Detection** - Automatic `.mlua` file recognition
+- 🐛 **DAP Integration** - Debug adapter for the MSW debugger (requires nvim-dap)
 
 ## Requirements
 
@@ -37,6 +38,7 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 - Optional: [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) for Tree-sitter support
 - Optional: [nvim-cmp](https://github.com/hrsh7th/nvim-cmp) for enhanced autocompletion
 - Optional: [tree-sitter-mlua](https://github.com/seokgukim/tree-sitter-mlua) for Tree-sitter parser
+- Optional: [nvim-dap](https://github.com/mfussenegger/nvim-dap) for debugging support
 
 ## Installation
 
@@ -51,6 +53,7 @@ For more information, see the `./doc/mlua.nvim.txt` file.
     "nvim-treesitter/nvim-treesitter", -- optional, for Tree-sitter support
     "hrsh7th/nvim-cmp", -- optional, for autocompletion
     "hrsh7th/cmp-nvim-lsp", -- optional, for LSP completion source
+    "mfussenegger/nvim-dap", -- optional, for debugging support
   },
   ft = "mlua", -- lazy load on mlua filetype
   config = function()
@@ -101,6 +104,11 @@ require("mlua").setup({
   treesitter = {
     enabled = true,
     parser_path = vim.fn.expand("~/tree-sitter-mlua"), -- Path to tree-sitter-mlua repo
+  },
+  dap = {
+    enabled = false, -- Set to true to enable debugging (requires nvim-dap)
+    port = 51300, -- Default MSW debug port
+    host = "localhost", -- Debug server host
   },
 })
 ```
@@ -168,32 +176,23 @@ When a `.mlua` file is opened with LSP attached, these commands become available
 | `:MluaFormat`           | Format current document    |
 | `:MluaToggleInlayHints` | Toggle inlay hints on/off  |
 
-**Note:** No keybindings are set by default. You can map these commands to your preferred keys:
+### Default LSP Keybindings (mlua buffers only)
 
-```lua
--- Example keymaps in your config
-vim.api.nvim_create_autocmd("LspAttach", {
-  callback = function(args)
-    local client = vim.lsp.get_client_by_id(args.data.client_id)
-    if client and client.name == "mlua" then
-      local bufnr = args.buf
-      local opts = { buffer = bufnr, noremap = true, silent = true }
+When the mLua LSP attaches to a buffer, these keybindings are automatically set:
 
-      -- Navigation
-      vim.keymap.set("n", "gd", "<cmd>MluaDefinition<cr>", opts)
-      vim.keymap.set("n", "gr", "<cmd>MluaReferences<cr>", opts)
+| Key          | Action                  | Description            |
+| ------------ | ----------------------- | ---------------------- |
+| `K`          | `vim.lsp.buf.hover`     | Show hover information |
+| `gd`         | `vim.lsp.buf.definition`| Go to definition       |
+| `gr`         | `vim.lsp.buf.references`| Find references        |
+| `gD`         | `vim.lsp.buf.declaration`| Go to declaration     |
+| `gi`         | `vim.lsp.buf.implementation`| Go to implementation |
+| `<leader>rn` | `vim.lsp.buf.rename`    | Rename symbol          |
+| `<leader>ca` | `vim.lsp.buf.code_action`| Code action           |
+| `<leader>f`  | `vim.lsp.buf.format`    | Format document        |
+| `<leader>h`  | Toggle inlay hints      | Toggle inlay hints     |
 
-      -- Information
-      vim.keymap.set("n", "K", "<cmd>MluaHover<cr>", opts)
-
-      -- Actions
-      vim.keymap.set("n", "<space>rn", "<cmd>MluaRename<cr>", opts)
-      vim.keymap.set("n", "<space>f", "<cmd>MluaFormat<cr>", opts)
-      vim.keymap.set("n", "<space>h", "<cmd>MluaToggleInlayHints<cr>", opts)
-    end
-  end,
-})
-```
+**Note:** If you want to override these keybindings, you can add your own `LspAttach` autocmd in your config that runs after the plugin's.
 
 ## Performance
 
@@ -234,7 +233,11 @@ mlua.nvim/
 │       ├── predefines.lua # Predefines loader with JSON compression
 │       ├── entries.lua    # Entry file parsing (.map, .ui, .model, etc.)
 │       ├── debug.lua      # Debug utilities
-│       └── utils.lua      # Utility functions (path handling, fuzzy matching, etc.)
+│       ├── utils.lua      # Utility functions (path handling, fuzzy matching, etc.)
+│       └── dap/           # DAP (Debug Adapter Protocol) integration
+│           ├── init.lua       # DAP setup and commands
+│           ├── adapter.lua    # MSW debug server connection handler
+│           └── protocol.lua   # MSW binary protocol implementation
 ├── queries/           # Tree-sitter queries
 │   └── mlua/
 │       └── highlights.scm
@@ -284,7 +287,50 @@ How do I know? BRUTE FORCE.
 ### Not Fully Compatible with MSW
 
 This is a personal project and not an official one from the MSW team.
-It does not support debugging features or "Open in MSW Client" functionality.
+
+**Note:** The DAP integration provides basic debugging support. It connects to the MSW debugger server using its binary protocol. To use debugging:
+
+1. Enable DAP in your config: `dap = { enabled = true }`
+2. Start MSW with debugging enabled
+3. Use `:MluaDebugAttach` to connect to the debugger
+
+## DAP (Debugging) Commands
+
+When DAP is enabled, these commands become available:
+
+| Command                     | Description                           |
+| --------------------------- | ------------------------------------- |
+| `:MluaDebugAttach [port]`   | Attach to MSW debugger (default: 51300) |
+| `:MluaDebugDisconnect`      | Disconnect from debugger              |
+| `:MluaDebugContinue`        | Continue execution                    |
+| `:MluaDebugStepOver`        | Step over                             |
+| `:MluaDebugStepInto`        | Step into                             |
+| `:MluaDebugStepOut`         | Step out                              |
+| `:MluaDebugToggleBreakpoint`| Toggle breakpoint at cursor           |
+| `:MluaDebugClearBreakpoints`| Clear all breakpoints                 |
+| `:MluaDebugStackTrace`      | Show current stack trace              |
+| `:MluaDebugEval <expr>`     | Evaluate expression                   |
+
+### Default Keybindings (mlua buffers only)
+
+When DAP is enabled, these keybindings are automatically set for `.mlua` files:
+
+| Key          | Command                     | Description         |
+| ------------ | --------------------------- | ------------------- |
+| `<F5>`       | `:MluaDebugContinue`        | Continue            |
+| `<F9>`       | `:MluaDebugToggleBreakpoint`| Toggle breakpoint   |
+| `<F10>`      | `:MluaDebugStepOver`        | Step over           |
+| `<F11>`      | `:MluaDebugStepInto`        | Step into           |
+| `<S-F11>`    | `:MluaDebugStepOut`         | Step out            |
+| `<leader>da` | `:MluaDebugAttach`          | Attach to debugger  |
+| `<leader>dd` | `:MluaDebugDisconnect`      | Disconnect          |
+| `<leader>dc` | `:MluaDebugContinue`        | Continue            |
+| `<leader>db` | `:MluaDebugToggleBreakpoint`| Toggle breakpoint   |
+| `<leader>dB` | `:MluaDebugClearBreakpoints`| Clear breakpoints   |
+| `<leader>ds` | `:MluaDebugStepOver`        | Step over           |
+| `<leader>di` | `:MluaDebugStepInto`        | Step into           |
+| `<leader>do` | `:MluaDebugStepOut`         | Step out            |
+| `<leader>dt` | `:MluaDebugStackTrace`      | Show stack trace    |
 
 Someday maybe...
 

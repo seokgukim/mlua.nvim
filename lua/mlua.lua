@@ -6,6 +6,7 @@ local M = {}
 ---@class MluaConfig
 ---@field lsp MluaLspConfig LSP configuration options
 ---@field treesitter boolean Enable Tree-sitter integration
+---@field dap MluaDapConfig DAP (debugger) configuration options
 local default_config = {
 	lsp = {
 		enabled = true,
@@ -20,6 +21,11 @@ local default_config = {
 	treesitter = {
 		enabled = true,
 		parser_path = vim.fn.expand("~/tree-sitter-mlua"),
+	},
+	dap = {
+		enabled = false, -- Disabled by default, requires nvim-dap
+		port = 51300, -- Default MSW debug port
+		host = "localhost",
 	},
 }
 
@@ -149,14 +155,14 @@ function M.setup(opts)
 		-- Setup LSP
 		lsp.setup(lsp_config)
 
-		-- Create buffer-local commands for LSP actions
-		-- Users can map these commands to their preferred keys
+		-- Create buffer-local commands and keymaps for LSP actions
 		vim.api.nvim_create_autocmd("LspAttach", {
 			pattern = "*",
 			callback = function(args)
 				local client = vim.lsp.get_client_by_id(args.data.client_id)
 				if client and client.name == "mlua" then
 					local bufnr = args.buf
+					local opts = { buffer = bufnr, silent = true }
 
 					-- LSP navigation and info commands
 					vim.api.nvim_buf_create_user_command(bufnr, "MluaHover", function()
@@ -183,14 +189,44 @@ function M.setup(opts)
 						local enabled = vim.lsp.inlay_hint.is_enabled({ bufnr = bufnr })
 						vim.lsp.inlay_hint.enable(not enabled, { bufnr = bufnr })
 					end, { desc = "Toggle inlay hints" })
+
+					-- Default LSP keymaps (buffer-local, only for mlua LSP)
+					vim.keymap.set("n", "K", vim.lsp.buf.hover, vim.tbl_extend("force", opts, { desc = "Hover" }))
+					vim.keymap.set("n", "gd", vim.lsp.buf.definition, vim.tbl_extend("force", opts, { desc = "Go to definition" }))
+					vim.keymap.set("n", "gr", vim.lsp.buf.references, vim.tbl_extend("force", opts, { desc = "Find references" }))
+					vim.keymap.set("n", "gD", vim.lsp.buf.declaration, vim.tbl_extend("force", opts, { desc = "Go to declaration" }))
+					vim.keymap.set("n", "gi", vim.lsp.buf.implementation, vim.tbl_extend("force", opts, { desc = "Go to implementation" }))
+					vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, vim.tbl_extend("force", opts, { desc = "Rename symbol" }))
+					vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, vim.tbl_extend("force", opts, { desc = "Code action" }))
+					vim.keymap.set("n", "<leader>f", function() vim.lsp.buf.format({ async = true }) end, vim.tbl_extend("force", opts, { desc = "Format" }))
+					vim.keymap.set("n", "<leader>h", function()
+						local enabled = vim.lsp.inlay_hint.is_enabled({ bufnr = bufnr })
+						vim.lsp.inlay_hint.enable(not enabled, { bufnr = bufnr })
+					end, vim.tbl_extend("force", opts, { desc = "Toggle inlay hints" }))
 				end
 			end,
 		})
+	end
+
+	-- Setup DAP if enabled
+	if M.config.dap.enabled then
+		local dap_ok, mlua_dap = pcall(require, "mlua.dap")
+		if dap_ok then
+			mlua_dap.setup({
+				port = M.config.dap.port,
+				host = M.config.dap.host,
+			})
+		else
+			vim.notify("mLua DAP: failed to load mlua.dap module", vim.log.levels.WARN)
+		end
 	end
 end
 
 -- Export debug utilities
 M.debug = require("mlua.debug")
+
+-- Export DAP module
+M.dap = require("mlua.dap")
 
 -- Debug function to check Tree-sitter status
 function M.check_treesitter()
