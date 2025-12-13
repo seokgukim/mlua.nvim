@@ -17,16 +17,9 @@ local M = {}
 ---@field enabled boolean Enable Tree-sitter integration
 ---@field parser_path string Path to tree-sitter-mlua
 
----@class MluaDapConfig
----@field enabled boolean Enable DAP
----@field port number Debug server port
----@field host string Debug server host
----@field timeout number|nil Connection timeout
-
 ---@class MluaConfig
 ---@field lsp MluaLspConfig LSP configuration options
 ---@field treesitter MluaTreesitterConfig Tree-sitter configuration options
----@field dap MluaDapConfig DAP (debugger) configuration options
 local default_config = {
 	lsp = {
 		enabled = true,
@@ -41,11 +34,6 @@ local default_config = {
 	treesitter = {
 		enabled = true,
 		parser_path = vim.fn.expand("~/tree-sitter-mlua"),
-	},
-	dap = {
-		enabled = false, -- Disabled by default, requires nvim-dap
-		port = 51300, -- Default MSW debug port
-		host = "localhost",
 	},
 }
 
@@ -229,24 +217,13 @@ function M.setup(opts)
 	end
 
 	-- Setup DAP if enabled
-	if M.config.dap.enabled then
-		local dap_ok, mlua_dap = pcall(require, "mlua.dap")
-		if dap_ok then
-			mlua_dap.setup({
-				port = M.config.dap.port,
-				host = M.config.dap.host,
-			})
-		else
-			vim.notify("mLua DAP: failed to load mlua.dap module", vim.log.levels.WARN)
-		end
-	end
+	-- NOTE: DAP support has been moved to a separate plugin.
+	-- The MSW debugger uses a binary protocol instead of JSON-RPC,
+	-- which is incompatible with nvim-dap. A custom debug solution is needed.
 end
 
 -- Export debug utilities
 M.debug = require("mlua.debug")
-
--- Export DAP module
-M.dap = require("mlua.dap")
 
 -- Debug function to check Tree-sitter status
 function M.check_treesitter()

@@ -28,7 +28,6 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 - 🌳 **Tree-sitter Support** - Syntax highlighting via Tree-sitter parser
 - 📝 **Syntax Highlighting** - Fallback Vim syntax when Tree-sitter is unavailable
 - 🔧 **Filetype Detection** - Automatic `.mlua` file recognition
-- 🐛 **DAP Integration** - Debug adapter for the MSW debugger (requires nvim-dap)
 
 ## Requirements
 
@@ -38,7 +37,6 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 - Optional: [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) for Tree-sitter support
 - Optional: [nvim-cmp](https://github.com/hrsh7th/nvim-cmp) for enhanced autocompletion
 - Optional: [tree-sitter-mlua](https://github.com/seokgukim/tree-sitter-mlua) for Tree-sitter parser
-- Optional: [nvim-dap](https://github.com/mfussenegger/nvim-dap) for debugging support
 
 ## Installation
 
@@ -53,7 +51,6 @@ For more information, see the `./doc/mlua.nvim.txt` file.
     "nvim-treesitter/nvim-treesitter", -- optional, for Tree-sitter support
     "hrsh7th/nvim-cmp", -- optional, for autocompletion
     "hrsh7th/cmp-nvim-lsp", -- optional, for LSP completion source
-    "mfussenegger/nvim-dap", -- optional, for debugging support
   },
   ft = "mlua", -- lazy load on mlua filetype
   config = function()
@@ -104,11 +101,6 @@ require("mlua").setup({
   treesitter = {
     enabled = true,
     parser_path = vim.fn.expand("~/tree-sitter-mlua"), -- Path to tree-sitter-mlua repo
-  },
-  dap = {
-    enabled = false, -- Set to true to enable debugging (requires nvim-dap)
-    port = 51300, -- Default MSW debug port
-    host = "localhost", -- Debug server host
   },
 })
 ```
@@ -233,11 +225,7 @@ mlua.nvim/
 │       ├── predefines.lua # Predefines loader with JSON compression
 │       ├── entries.lua    # Entry file parsing (.map, .ui, .model, etc.)
 │       ├── debug.lua      # Debug utilities
-│       ├── utils.lua      # Utility functions (path handling, fuzzy matching, etc.)
-│       └── dap/           # DAP (Debug Adapter Protocol) integration
-│           ├── init.lua       # DAP setup and commands
-│           ├── adapter.lua    # MSW debug server connection handler
-│           └── protocol.lua   # MSW binary protocol implementation
+│       └── utils.lua      # Utility functions (path handling, fuzzy matching, etc.)
 ├── queries/           # Tree-sitter queries
 │   └── mlua/
 │       └── highlights.scm
@@ -288,101 +276,7 @@ How do I know? BRUTE FORCE.
 
 This is a personal project and not an official one from the MSW team.
 
-**Note:** The DAP integration provides basic debugging support. It connects to the MSW debugger server using its binary protocol. To use debugging:
-
-1. Enable DAP in your config: `dap = { enabled = true }`
-2. Start MSW with debugging enabled
-3. Use `:MluaDebugAttach` to connect to the debugger
-
-## DAP (Debugging) Integration
-
-### Automatic Setup (Recommended)
-
-Enable DAP in your mlua.nvim config:
-
-```lua
-require("mlua").setup({
-  dap = {
-    enabled = true,
-    port = 51300,
-    host = "localhost",
-  },
-})
-```
-
-### Manual nvim-dap Configuration
-
-If you prefer manual control or want to integrate with your existing nvim-dap config:
-
-```lua
--- In your dap config (e.g., lua/config/dap.lua)
-local dap = require("dap")
-
-dap.adapters.mlua = function(callback, config)
-  local host = config.host or "localhost"
-  local port = config.port or 51300
-
-  local mlua_dap = require("mlua.dap.adapter")
-  mlua_dap.connect(host, port, function(err)
-    if err then
-      vim.notify("mLua debugger: " .. err, vim.log.levels.ERROR)
-      return
-    end
-    callback({
-      type = "pipe",
-      pipe = nil, -- Communication handled by mlua.dap.adapter
-    })
-  end)
-end
-
-dap.configurations.mlua = {
-  {
-    type = "mlua",
-    request = "attach",
-    name = "Attach to MSW Debugger",
-    port = 51300,
-    host = "localhost",
-  },
-}
-```
-
-## DAP (Debugging) Commands
-
-When DAP is enabled, these commands become available:
-
-| Command                     | Description                           |
-| --------------------------- | ------------------------------------- |
-| `:MluaDebugAttach [port]`   | Attach to MSW debugger (default: 51300) |
-| `:MluaDebugDisconnect`      | Disconnect from debugger              |
-| `:MluaDebugContinue`        | Continue execution                    |
-| `:MluaDebugStepOver`        | Step over                             |
-| `:MluaDebugStepInto`        | Step into                             |
-| `:MluaDebugStepOut`         | Step out                              |
-| `:MluaDebugToggleBreakpoint`| Toggle breakpoint at cursor           |
-| `:MluaDebugClearBreakpoints`| Clear all breakpoints                 |
-| `:MluaDebugStackTrace`      | Show current stack trace              |
-| `:MluaDebugEval <expr>`     | Evaluate expression                   |
-
-### Default Keybindings (mlua buffers only)
-
-When DAP is enabled, these keybindings are automatically set for `.mlua` files:
-
-| Key          | Command                     | Description         |
-| ------------ | --------------------------- | ------------------- |
-| `<F5>`       | `:MluaDebugContinue`        | Continue            |
-| `<F9>`       | `:MluaDebugToggleBreakpoint`| Toggle breakpoint   |
-| `<F10>`      | `:MluaDebugStepOver`        | Step over           |
-| `<F11>`      | `:MluaDebugStepInto`        | Step into           |
-| `<S-F11>`    | `:MluaDebugStepOut`         | Step out            |
-| `<leader>da` | `:MluaDebugAttach`          | Attach to debugger  |
-| `<leader>dd` | `:MluaDebugDisconnect`      | Disconnect          |
-| `<leader>dc` | `:MluaDebugContinue`        | Continue            |
-| `<leader>db` | `:MluaDebugToggleBreakpoint`| Toggle breakpoint   |
-| `<leader>dB` | `:MluaDebugClearBreakpoints`| Clear breakpoints   |
-| `<leader>ds` | `:MluaDebugStepOver`        | Step over           |
-| `<leader>di` | `:MluaDebugStepInto`        | Step into           |
-| `<leader>do` | `:MluaDebugStepOut`         | Step out            |
-| `<leader>dt` | `:MluaDebugStackTrace`      | Show stack trace    |
+**Note:** Debugging support has been removed from this plugin. The MSW debugger uses a binary protocol instead of standard JSON-RPC DAP, making it incompatible with nvim-dap. A separate custom debug plugin may be developed in the future.
 
 Someday maybe...
 
