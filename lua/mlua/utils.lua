@@ -100,21 +100,9 @@ function M.normalize_for_node(path)
 		return path
 	end
 
-	-- For non-Windows platforms, try WSL path conversion if available
-	if path:match("^%a:[/\\]") then
-		return path
-	end
-
-	if vim.fn.executable("wslpath") ~= 1 then
-		return path
-	end
-
-	local converted = vim.fn.system({ "wslpath", "-w", path })
-	if vim.v.shell_error ~= 0 then
-		return path
-	end
-
-	return M.trim(converted)
+	-- On Linux/macOS (including WSL with Linux Node.js), paths work as-is
+	-- No conversion needed - Linux Node.js understands Linux paths natively
+	return path
 end
 
 function M.json_decode(payload)

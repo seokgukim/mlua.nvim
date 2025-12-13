@@ -12,9 +12,10 @@ local default_config = {
 		cmd = nil, -- Auto-detected from LSP module
 		capabilities = nil, -- Will be set from nvim-cmp if available
 		on_attach = nil, -- User callback
-		max_matches = 3, -- Max fuzzy matches per token
+		max_matches = 3, -- Max fuzzy matches per token (legacy, less relevant with full loading)
 		max_modified_lines = 5, -- Max modified lines to consider for re-indexing
 		trigger_count = 4, -- Triggers load file after N characters typed
+		execspace_decorations = true, -- Enable ExecSpace virtual text decorations
 	},
 	treesitter = {
 		enabled = true,
@@ -109,6 +110,7 @@ function M.setup(opts)
 			max_matches = M.config.lsp.max_matches,
 			max_modified_lines = M.config.lsp.max_modified_lines,
 			trigger_count = M.config.lsp.trigger_count,
+			execspace_decorations = M.config.lsp.execspace_decorations,
 			on_attach = function(client, bufnr)
 				-- Enable completion triggered by <c-x><c-o>
 				vim.api.nvim_buf_set_option(bufnr, "omnifunc", "v:lua.vim.lsp.omnifunc")

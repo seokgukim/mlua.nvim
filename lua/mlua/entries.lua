@@ -149,7 +149,8 @@ local function build_entry_item(path, payload)
 	}
 end
 
-local function load_entry_file(path)
+-- Load and parse a single entry file
+function M.load_entry_file(path)
 	if not path or path == "" then
 		return nil
 	end
@@ -339,7 +340,7 @@ function M.collect_entry_items_async(installed_dir, root_dir, callback)
 
 			vim.schedule(function()
 				if vim.fn.filereadable(normalized_path) == 1 then
-					local entry = load_entry_file(normalized_path)
+					local entry = M.load_entry_file(normalized_path)
 					if entry then
 						table.insert(project_items_new, entry)
 						if uv and uv.fs_stat then
@@ -393,7 +394,7 @@ function M.collect_entry_items(installed_dir, root_dir, document_items)
 			for _, path in ipairs(files) do
 				local normalized_path = vim.fn.fnamemodify(path, ":p")
 				if vim.fn.filereadable(normalized_path) == 1 then
-					local entry = load_entry_file(normalized_path)
+					local entry = M.load_entry_file(normalized_path)
 					if entry then
 						table.insert(project_items, entry)
 						if uv and uv.fs_stat then

@@ -2,6 +2,8 @@ local utils = require("mlua.utils")
 local entries = require("mlua.entries")
 local workspace = require("mlua.workspace")
 local predefines = require("mlua.predefines")
+local document = require("mlua.document")
+local execspace = require("mlua.execspace")
 
 local M = {}
 
@@ -354,6 +356,66 @@ function M.setup(opts)
 					-- Let Neovim handle diagnostic refresh automatically
 					return vim.NIL
 				end,
+				-- Handle server's request to rename file when script name changes
+				["msw.protocol.renameFile"] = function(_, params)
+					if not params or not params.uri or not params.newName then
+						return
+					end
+
+					local uri = params.uri
+					local new_name = params.newName
+					local old_path = vim.uri_to_fname(uri)
+					local old_filename = vim.fn.fnamemodify(old_path, ":t:r")
+
+					-- Check if filename already matches
+					if old_filename == new_name or old_filename == new_name .. ".d" then
+						return
+					end
+
+					-- Prompt user
+					vim.schedule(function()
+						local choice = vim.fn.confirm(
+							string.format("Update file name to match script '%s'?", new_name),
+							"&Yes\n&No",
+							2
+						)
+
+						if choice == 1 then
+							-- Determine new filename (preserve .d suffix if present)
+							local ext = old_path:match("%.d%.mlua$") and ".d.mlua" or ".mlua"
+							local dir = vim.fn.fnamemodify(old_path, ":h")
+							local new_path = dir .. "/" .. new_name .. ext
+
+							-- Check if buffer is modified
+							local bufnr = vim.fn.bufnr(old_path)
+							if bufnr ~= -1 and vim.bo[bufnr].modified then
+								local save_choice = vim.fn.confirm(
+									string.format("Save changes to '%s' before renaming?", vim.fn.fnamemodify(old_path, ":t")),
+									"&Yes\n&No",
+									1
+								)
+								if save_choice == 1 then
+									vim.api.nvim_buf_call(bufnr, function()
+										vim.cmd("write")
+									end)
+								end
+							end
+
+							-- Rename the file
+							local ok, err = pcall(vim.fn.rename, old_path, new_path)
+							if ok then
+								-- Update buffer name if it's open
+								if bufnr ~= -1 then
+									vim.api.nvim_buf_set_name(bufnr, new_path)
+									vim.cmd("edit") -- Reload buffer
+								end
+								vim.notify(string.format("Renamed to %s", vim.fn.fnamemodify(new_path, ":t")), vim.log.levels.INFO)
+							else
+								vim.notify(string.format("Failed to rename file: %s", tostring(err)), vim.log.levels.ERROR)
+							end
+						end
+					end)
+				end,
 			}, opts.handlers or {})
 
 			local user_on_attach = opts.on_attach
@@ -387,6 +449,11 @@ function M.setup(opts)
 						opts.max_modified_lines,
 						opts.trigger_count
 					)
+				end
+
+				-- Setup ExecSpace decorations (virtual text for Client/Server/etc)
+				if opts.execspace_decorations ~= false then
+					execspace.setup_for_buffer(client, bufnr)
 				end
 
 				if user_on_attach then
@@ -532,37 +599,72 @@ function M.setup(opts)
 					on_error = function(code, err)
 						vim.notify("mLua LSP error [" .. tostring(code) .. "]: " .. tostring(err), vim.log.levels.ERROR)
 					end,
+					on_exit = function(code, signal, client_id)
+						-- Cleanup document watchers
+						document.cleanup(client_id)
+					end,
 					capabilities = client_capabilities,
 				}, {
 					bufnr = args.buf,
 				})
 			end
 
-			-- Start LSP immediately - simple approach like VS Code
+			-- Start LSP with VS Code-like full workspace loading
 			if is_project then
 				lsp_starting[root_dir] = true
 
-				-- Load entry items (needed for LSP initialization)
-				entries.collect_entry_items_async(installed_dir, root_dir, function(entry_items)
+				-- Show progress notification
+				vim.notify("Loading mLua workspace...", vim.log.levels.INFO)
+
+				-- Collect all documents and entries in parallel (like VS Code)
+				local docs_ready = false
+				local entries_ready = false
+				local all_documents = {}
+				local all_entries = {}
+
+				local function try_start_lsp()
+					if not docs_ready or not entries_ready then
+						return
+					end
+
 					vim.schedule(function()
-						-- Start LSP with just current buffer + entries (like VS Code)
-						start_lsp_with_data({}, entry_items)
+						-- Start LSP with full workspace context (VS Code style)
+						start_lsp_with_data(all_documents, all_entries)
 
 						lsp_starting[root_dir] = false
 
-						-- Build file index for workspace awareness (async, non-blocking)
-						workspace.build_workspace_index_async(root_dir, function(file_count)
-							vim.notify(
-								string.format("✓ Workspace indexed: %d files", file_count),
-								vim.log.levels.INFO
-							)
-							-- Get client reference to pass to workspace
-							local client = vim.lsp.get_clients({ name = "mlua", bufnr = args.buf })[1]
-							if client then
-								workspace.load_related_files(client.id, args.buf, root_dir, -1, opts.max_matches or 3, true)
-							end
-						end)
+						vim.notify(
+							string.format(
+								"✓ mLua workspace loaded: %d files, %d entries",
+								#all_documents,
+								#all_entries
+							),
+							vim.log.levels.INFO
+						)
+
+						-- Setup file watchers (like VS Code's DocumentService)
+						local client = vim.lsp.get_clients({ name = "mlua", bufnr = args.buf })[1]
+						if client then
+							document.setup_file_watcher(client, root_dir)
+							document.setup_entry_watcher(client, root_dir, entries)
+						end
 					end)
+				end
+
+				-- Load all documents async (VS Code loads sync with progress, we do async for better UX)
+				document.collect_all_documents_async(root_dir, function(documents)
+					all_documents = documents
+					docs_ready = true
+					try_start_lsp()
+				end, function(current, total, filename)
+					-- Optional: could show progress here
+				end)
+
+				-- Load entry items
+				entries.collect_entry_items_async(installed_dir, root_dir, function(entry_items)
+					all_entries = entry_items
+					entries_ready = true
+					try_start_lsp()
 				end)
 			else
 				-- No project, just start with current buffer
@@ -720,5 +822,16 @@ vim.api.nvim_create_user_command("MluaReloadWorkspace", function()
 		end
 	end
 end, { desc = "Reload mLua workspace index" })
+
+vim.api.nvim_create_user_command("MluaToggleExecSpace", function()
+	execspace.toggle()
+end, { desc = "Toggle ExecSpace decorations" })
+
+vim.api.nvim_create_user_command("MluaRefreshExecSpace", function()
+	execspace.refresh_all()
+end, { desc = "Refresh ExecSpace decorations for all buffers" })
+
+-- Export execspace module for external access
+M.execspace = execspace
 
 return M
