@@ -3,18 +3,33 @@
 
 local M = {}
 
+---@class MluaLspConfig
+---@field enabled boolean Enable LSP
+---@field cmd string[]|nil LSP command (auto-detected if nil)
+---@field capabilities table|nil LSP capabilities
+---@field on_attach function|nil User callback on attach
+---@field max_matches number Max fuzzy matches per token
+---@field max_modified_lines number Max modified lines to consider for re-indexing
+---@field trigger_count number Triggers load file after N characters typed
+---@field execspace_decorations boolean Enable ExecSpace virtual text decorations
+
+---@class MluaTreesitterConfig
+---@field enabled boolean Enable Tree-sitter integration
+---@field parser_path string Path to tree-sitter-mlua
+
 ---@class MluaConfig
 ---@field lsp MluaLspConfig LSP configuration options
----@field treesitter boolean Enable Tree-sitter integration
+---@field treesitter MluaTreesitterConfig Tree-sitter configuration options
 local default_config = {
 	lsp = {
 		enabled = true,
 		cmd = nil, -- Auto-detected from LSP module
 		capabilities = nil, -- Will be set from nvim-cmp if available
 		on_attach = nil, -- User callback
-		max_matches = 3, -- Max fuzzy matches per token
+		max_matches = 3, -- Max fuzzy matches per token (legacy, less relevant with full loading)
 		max_modified_lines = 5, -- Max modified lines to consider for re-indexing
 		trigger_count = 4, -- Triggers load file after N characters typed
+		execspace_decorations = true, -- Enable ExecSpace virtual text decorations
 	},
 	treesitter = {
 		enabled = true,
@@ -109,6 +124,7 @@ function M.setup(opts)
 			max_matches = M.config.lsp.max_matches,
 			max_modified_lines = M.config.lsp.max_modified_lines,
 			trigger_count = M.config.lsp.trigger_count,
+			execspace_decorations = M.config.lsp.execspace_decorations,
 			on_attach = function(client, bufnr)
 				-- Enable completion triggered by <c-x><c-o>
 				vim.api.nvim_buf_set_option(bufnr, "omnifunc", "v:lua.vim.lsp.omnifunc")
@@ -147,14 +163,14 @@ function M.setup(opts)
 		-- Setup LSP
 		lsp.setup(lsp_config)
 
-		-- Create buffer-local commands for LSP actions
-		-- Users can map these commands to their preferred keys
+		-- Create buffer-local commands and keymaps for LSP actions
 		vim.api.nvim_create_autocmd("LspAttach", {
 			pattern = "*",
 			callback = function(args)
 				local client = vim.lsp.get_client_by_id(args.data.client_id)
 				if client and client.name == "mlua" then
 					local bufnr = args.buf
+					local opts = { buffer = bufnr, silent = true }
 
 					-- LSP navigation and info commands
 					vim.api.nvim_buf_create_user_command(bufnr, "MluaHover", function()
@@ -181,10 +197,29 @@ function M.setup(opts)
 						local enabled = vim.lsp.inlay_hint.is_enabled({ bufnr = bufnr })
 						vim.lsp.inlay_hint.enable(not enabled, { bufnr = bufnr })
 					end, { desc = "Toggle inlay hints" })
+
+					-- Default LSP keymaps (buffer-local, only for mlua LSP)
+					vim.keymap.set("n", "K", vim.lsp.buf.hover, vim.tbl_extend("force", opts, { desc = "Hover" }))
+					vim.keymap.set("n", "gd", vim.lsp.buf.definition, vim.tbl_extend("force", opts, { desc = "Go to definition" }))
+					vim.keymap.set("n", "gr", vim.lsp.buf.references, vim.tbl_extend("force", opts, { desc = "Find references" }))
+					vim.keymap.set("n", "gD", vim.lsp.buf.declaration, vim.tbl_extend("force", opts, { desc = "Go to declaration" }))
+					vim.keymap.set("n", "gi", vim.lsp.buf.implementation, vim.tbl_extend("force", opts, { desc = "Go to implementation" }))
+					vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, vim.tbl_extend("force", opts, { desc = "Rename symbol" }))
+					vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, vim.tbl_extend("force", opts, { desc = "Code action" }))
+					vim.keymap.set("n", "<leader>f", function() vim.lsp.buf.format({ async = true }) end, vim.tbl_extend("force", opts, { desc = "Format" }))
+					vim.keymap.set("n", "<leader>h", function()
+						local enabled = vim.lsp.inlay_hint.is_enabled({ bufnr = bufnr })
+						vim.lsp.inlay_hint.enable(not enabled, { bufnr = bufnr })
+					end, vim.tbl_extend("force", opts, { desc = "Toggle inlay hints" }))
 				end
 			end,
 		})
 	end
+
+	-- Setup DAP if enabled
+	-- NOTE: DAP support has been moved to a separate plugin.
+	-- The MSW debugger uses a binary protocol instead of JSON-RPC,
+	-- which is incompatible with nvim-dap. A custom debug solution is needed.
 end
 
 -- Export debug utilities

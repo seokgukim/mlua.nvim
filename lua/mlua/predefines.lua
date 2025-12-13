@@ -1,11 +1,21 @@
 -- Predefines loader (modules, globalVariables, globalFunctions) with compression
+-- Loads MSW predefines from the language server extension
+
 local utils = require("mlua.utils")
 
 local M = {}
 
+---@class Predefines
+---@field modules table[] Module definitions
+---@field globalVariables table[] Global variable definitions
+---@field globalFunctions table[] Global function definitions
+
+---@type table<string, Predefines> Cache of loaded predefines by install directory
 local predefines_cache = {}
 
--- Simple compression: remove whitespace from JSON
+---Simple compression: remove whitespace from JSON
+---@param json_str string|nil JSON string to compress
+---@return string|nil compressed Compressed JSON string
 local function compress_json(json_str)
 	if not json_str then
 		return nil
@@ -38,6 +48,9 @@ local function compress_json(json_str)
 	return table.concat(result)
 end
 
+---Load predefines from the language server extension
+---@param installed_dir string|nil Installation directory
+---@return Predefines|nil predefines The loaded predefines or nil
 function M.load_predefines(installed_dir)
 	if not installed_dir or installed_dir == "" then
 		return nil

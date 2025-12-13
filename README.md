@@ -22,9 +22,10 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 ## Features
 
 - 🔍 **LSP Integration** - Language server support with autocomplete, go-to-definition, hover, etc.
-- � **Event-Driven Loading** - Smart, on-demand workspace file loading via LSP protocol
-- 🔎 **Fuzzy Matching** - Intelligent file resolution for cross-file references
-- �🌳 **Tree-sitter Support** - Syntax highlighting via Tree-sitter parser
+- 📂 **Full Workspace Loading** - VS Code-style workspace initialization with all files loaded at startup
+- 👁️ **ExecSpace Decorations** - Virtual text showing Client/Server/Multicast execution context
+- 📝 **File Watching** - Automatic notifications to LSP when files are created/deleted/modified
+- 🌳 **Tree-sitter Support** - Syntax highlighting via Tree-sitter parser
 - 📝 **Syntax Highlighting** - Fallback Vim syntax when Tree-sitter is unavailable
 - 🔧 **Filetype Detection** - Automatic `.mlua` file recognition
 
@@ -95,9 +96,7 @@ require("mlua").setup({
     cmd = nil, -- Auto-detected from LSP module
     capabilities = nil, -- Will use nvim-cmp capabilities if available
     on_attach = nil, -- Optional: your custom on_attach function
-    max_matches = 3, -- Max fuzzy matches per token
-    max_modified_lines = 5, -- Max modified lines to consider for re-indexing
-    trigger_count = 4, -- Triggers load file after N characters typed
+    execspace_decorations = true, -- Enable ExecSpace virtual text (Client/Server/etc)
   },
   treesitter = {
     enabled = true,
@@ -108,15 +107,14 @@ require("mlua").setup({
 
 ### How It Works
 
-The plugin uses an **event-driven approach** similar to VS Code:
+The plugin now uses a **VS Code-style approach**:
 
-1. **On file open**: LSP starts with minimal data (current file + predefines)
-2. **Workspace indexing**: Files are indexed in background (basename → path mapping)
-3. **On InsertLeave or type several characters**: Plugin extracts tokens (class names, types) from your code
-4. **Fuzzy matching**: Tokens are matched against indexed files using fuzzy search
-5. **Load via didOpen**: Matched files are sent to LSP for cross-file features
+1. **On project open**: All `.mlua` files are loaded into the LSP server (like VS Code)
+2. **File watching**: New/deleted/modified files notify the LSP automatically
+3. **Entry files**: `.map`, `.ui`, `.model`, `.collisiongroupset` files are monitored for changes
+4. **ExecSpace decorations**: Virtual text shows method execution context (Client/Server/etc)
 
-**No polling, no aggressive loading** - files load only when you finish typing, keeping things fast and predictable.
+This provides **complete workspace awareness** from the start, matching VS Code's behavior.
 
 ### Custom LSP on_attach
 
@@ -153,7 +151,9 @@ require("mlua").setup({
 | `:MluaUninstall`    | Uninstall mLua language server                                 |
 | `:MluaTSInstall`    | Automatically install Tree-sitter parser (clone, build, setup) |
 | `:MluaRestart`      | Restart the language server                                    |
-| `:MluaReloadWorkspace` | Reload all workspace files (re-index and re-load)               |
+| `:MluaReloadWorkspace` | Reload all workspace files (re-index and re-load)           |
+| `:MluaToggleExecSpace` | Toggle ExecSpace decorations on/off                         |
+| `:MluaRefreshExecSpace` | Refresh ExecSpace decorations for all buffers              |
 
 ### Buffer-local LSP Commands
 
@@ -168,42 +168,32 @@ When a `.mlua` file is opened with LSP attached, these commands become available
 | `:MluaFormat`           | Format current document    |
 | `:MluaToggleInlayHints` | Toggle inlay hints on/off  |
 
-**Note:** No keybindings are set by default. You can map these commands to your preferred keys:
+### Default LSP Keybindings (mlua buffers only)
 
-```lua
--- Example keymaps in your config
-vim.api.nvim_create_autocmd("LspAttach", {
-  callback = function(args)
-    local client = vim.lsp.get_client_by_id(args.data.client_id)
-    if client and client.name == "mlua" then
-      local bufnr = args.buf
-      local opts = { buffer = bufnr, noremap = true, silent = true }
+When the mLua LSP attaches to a buffer, these keybindings are automatically set:
 
-      -- Navigation
-      vim.keymap.set("n", "gd", "<cmd>MluaDefinition<cr>", opts)
-      vim.keymap.set("n", "gr", "<cmd>MluaReferences<cr>", opts)
+| Key          | Action                  | Description            |
+| ------------ | ----------------------- | ---------------------- |
+| `K`          | `vim.lsp.buf.hover`     | Show hover information |
+| `gd`         | `vim.lsp.buf.definition`| Go to definition       |
+| `gr`         | `vim.lsp.buf.references`| Find references        |
+| `gD`         | `vim.lsp.buf.declaration`| Go to declaration     |
+| `gi`         | `vim.lsp.buf.implementation`| Go to implementation |
+| `<leader>rn` | `vim.lsp.buf.rename`    | Rename symbol          |
+| `<leader>ca` | `vim.lsp.buf.code_action`| Code action           |
+| `<leader>f`  | `vim.lsp.buf.format`    | Format document        |
+| `<leader>h`  | Toggle inlay hints      | Toggle inlay hints     |
 
-      -- Information
-      vim.keymap.set("n", "K", "<cmd>MluaHover<cr>", opts)
-
-      -- Actions
-      vim.keymap.set("n", "<space>rn", "<cmd>MluaRename<cr>", opts)
-      vim.keymap.set("n", "<space>f", "<cmd>MluaFormat<cr>", opts)
-      vim.keymap.set("n", "<space>h", "<cmd>MluaToggleInlayHints<cr>", opts)
-    end
-  end,
-})
-```
+**Note:** If you want to override these keybindings, you can add your own `LspAttach` autocmd in your config that runs after the plugin's.
 
 ## Performance
 
-The event-driven system is designed to be lightweight and efficient:
+The VS Code-style approach loads all workspace files at startup:
 
-- **Fast startup**: Only current file + predefines loaded initially
-- **No polling**: Files load only on `InsertLeave` event, or when several types occur of edits are made
-- **Fuzzy matching**: Smart file resolution without exact name matching
-- **No cache eviction**: Once loaded, files stay in memory
-- **Predictable**: You control when files load (by finishing typing)
+- **Full context**: All files loaded initially, complete IntelliSense from start
+- **File watching**: Changes detected automatically via Neovim autocmds
+- **Async loading**: Files loaded in batches to avoid blocking UI
+- **Cached predefines**: Predefines cached to disk for faster restarts
 
 ## Debug Commands
 
@@ -229,11 +219,13 @@ mlua.nvim/
 │   ├── mlua.lua       # Main plugin module
 │   └── mlua/
 │       ├── lsp.lua        # LSP client setup and commands
-│       ├── workspace.lua  # Event-driven file loading with fuzzy matching
+│       ├── document.lua   # Document service (file watching, lifecycle notifications)
+│       ├── execspace.lua  # ExecSpace decorations (Client/Server virtual text)
+│       ├── workspace.lua  # Workspace file loading and indexing
 │       ├── predefines.lua # Predefines loader with JSON compression
+│       ├── entries.lua    # Entry file parsing (.map, .ui, .model, etc.)
 │       ├── debug.lua      # Debug utilities
-│       ├── entries.lua    # LSP entry definitions
-│       └── utils.lua      # Utility functions (fuzzy matching, etc.)
+│       └── utils.lua      # Utility functions (path handling, fuzzy matching, etc.)
 ├── queries/           # Tree-sitter queries
 │   └── mlua/
 │       └── highlights.scm
@@ -267,11 +259,11 @@ mlua.nvim/
 
 ## Notes
 
-### Lazy Loading
+### Full Workspace Loading
 
-The plugin uses lazy loading for workspace files to improve performance.
-When you open a file initially, the IntelliSense may show errors for not-yet-loaded information.
-This is resolved automatically as you edit - the plugin loads related files on demand when you finish typing.
+When you open a project, all `.mlua` files are loaded into the LSP server at startup.
+This matches VS Code's behavior and provides complete IntelliSense from the start.
+For very large projects, the initial load may take a moment, but you'll see a progress notification.
 
 ### Window Compatibility
 
@@ -283,7 +275,8 @@ How do I know? BRUTE FORCE.
 ### Not Fully Compatible with MSW
 
 This is a personal project and not an official one from the MSW team.
-It does not support debugging features or "Open in MSW Client" functionality.
+
+**Note:** Debugging support has been removed from this plugin. The MSW debugger uses a binary protocol instead of standard JSON-RPC DAP, making it incompatible with nvim-dap. A separate custom debug plugin may be developed in the future.
 
 Someday maybe...
 

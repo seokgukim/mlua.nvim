@@ -1,9 +1,16 @@
+-- Utility functions for mLua plugin
+-- Path handling, JSON, file operations, and fuzzy matching
+
 local uv = vim.loop or vim.uv
 
 local M = {}
 
+---@type string|nil
 local node_platform_cache
 
+---Find the root directory of an mLua project
+---@param fname string File name to start searching from
+---@return string|nil root_dir The project root directory or nil if not found
 function M.find_root(fname)
 	local markers = { "Environment", "Global", "map", "RootDesk", "ui" }
 	local path = vim.fn.fnamemodify(fname, ":p:h")
@@ -27,6 +34,9 @@ function M.find_root(fname)
 	return nil
 end
 
+---Trim whitespace from a string
+---@param value any Value to trim (returns unchanged if not a string)
+---@return any trimmed The trimmed value
 function M.trim(value)
 	if type(value) ~= "string" then
 		return value
@@ -39,6 +49,8 @@ function M.trim(value)
 	return (value:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+---Detect the Node.js platform (win32, linux, darwin, etc.)
+---@return string platform The detected platform or "unknown"
 function M.detect_node_platform()
 	if node_platform_cache then
 		return node_platform_cache
@@ -54,7 +66,9 @@ function M.detect_node_platform()
 	return node_platform_cache
 end
 
--- Normalize path for cross-platform compatibility
+---Normalize path for cross-platform compatibility
+---@param path string|nil Path to normalize
+---@return string|nil normalized The normalized path
 function M.normalize_path(path)
 	if not path or path == "" then
 		return path
@@ -81,7 +95,9 @@ function M.normalize_path(path)
 	return absolute
 end
 
--- Normalize path for Node.js require() - handles Windows path separators
+---Normalize path for Node.js require() - handles Windows path separators
+---@param path string|nil Path to normalize
+---@return string|nil normalized The normalized path for Node.js
 function M.normalize_for_node(path)
 	if not path or path == "" then
 		return path
@@ -95,28 +111,20 @@ function M.normalize_for_node(path)
 		-- Check if path is already normalized (contains forward slashes)
 		if path:match("^%a:[/\\]") or path:match("^/") then
 			-- Convert backslashes to forward slashes for require()
-			return path:gsub("\\", "/")
+			local normalized = path:gsub("\\", "/")
+			return normalized
 		end
 		return path
 	end
 
-	-- For non-Windows platforms, try WSL path conversion if available
-	if path:match("^%a:[/\\]") then
-		return path
-	end
-
-	if vim.fn.executable("wslpath") ~= 1 then
-		return path
-	end
-
-	local converted = vim.fn.system({ "wslpath", "-w", path })
-	if vim.v.shell_error ~= 0 then
-		return path
-	end
-
-	return M.trim(converted)
+	-- On Linux/macOS (including WSL with Linux Node.js), paths work as-is
+	-- No conversion needed - Linux Node.js understands Linux paths natively
+	return path
 end
 
+---Decode JSON string to Lua table
+---@param payload string|nil JSON string to decode
+---@return table|nil decoded The decoded table or nil on error
 function M.json_decode(payload)
 	if payload == nil or payload == "" then
 		return nil
@@ -130,6 +138,9 @@ function M.json_decode(payload)
 	return decoded
 end
 
+---Encode Lua table to JSON string
+---@param value any Value to encode
+---@return string|nil encoded The encoded JSON string or nil on error
 function M.json_encode(value)
 	if value == nil then
 		return nil
@@ -150,6 +161,9 @@ function M.json_encode(value)
 	return nil
 end
 
+---Ensure cache directory exists
+---@param root string|nil Root directory
+---@return string|nil dir The cache directory path or nil
 local function ensure_cache_dir(root)
 	if not root or root == "" then
 		return nil
@@ -167,7 +181,10 @@ local function ensure_cache_dir(root)
 	return dir
 end
 
--- Build cache file path with consistent separators
+---Build cache file path with consistent separators
+---@param root string|nil Root directory
+---@param filename string File name
+---@return string|nil path The full cache file path or nil
 function M.build_cache_path(root, filename)
 	local dir = ensure_cache_dir(root)
 	if not dir or dir == "" then
@@ -184,6 +201,11 @@ function M.build_cache_path(root, filename)
 	return dir .. "/" .. filename
 end
 
+---Build project-specific cache file path
+---@param root string|nil Root directory
+---@param project string|nil Project path (used for hashing)
+---@param suffix string File name suffix
+---@return string|nil path The full cache file path or nil
 function M.build_project_cache_path(root, project, suffix)
 	if not root or root == "" or not project or project == "" then
 		return nil
@@ -204,6 +226,9 @@ function M.build_project_cache_path(root, project, suffix)
 	return M.build_cache_path(root, filename)
 end
 
+---Read text file contents
+---@param path string|nil File path
+---@return string|nil content The file content or nil
 function M.read_text_file(path)
 	if not path or path == "" then
 		return nil
@@ -221,6 +246,10 @@ function M.read_text_file(path)
 	return table.concat(lines, "\n")
 end
 
+---Write text content to file
+---@param path string|nil File path
+---@param content string|nil Content to write
+---@return boolean success Whether the write succeeded
 function M.write_text_file(path, content)
 	if not path or path == "" or not content then
 		return false
@@ -230,6 +259,10 @@ function M.write_text_file(path, content)
 	return ok
 end
 
+---Read file state (from buffer if loaded, otherwise from disk)
+---@param path string File path
+---@return string|nil content The file content
+---@return boolean from_buffer Whether content came from a buffer
 function M.read_file_state(path)
 	local bufnr = vim.fn.bufnr(path, false)
 	if bufnr ~= -1 and vim.api.nvim_buf_is_loaded(bufnr) then
@@ -247,6 +280,10 @@ function M.read_file_state(path)
 	return content, false
 end
 
+---Check if string ends with suffix
+---@param str string|nil String to check
+---@param suffix string|nil Suffix to look for
+---@return boolean ends_with Whether the string ends with the suffix
 function M.ends_with(str, suffix)
 	if type(str) ~= "string" or type(suffix) ~= "string" then
 		return false
@@ -259,6 +296,9 @@ function M.ends_with(str, suffix)
 	return str:sub(-#suffix) == suffix
 end
 
+---Check if value is a list (array-like table)
+---@param value any Value to check
+---@return boolean is_list Whether the value is a list
 function M.is_list(value)
 	if type(value) ~= "table" then
 		return false
@@ -289,6 +329,10 @@ function M.is_list(value)
 	return true
 end
 
+---Merge two lists into a new list
+---@param left table|nil First list
+---@param right table|nil Second list
+---@return table combined The merged list
 function M.merge_lists(left, right)
 	local combined = {}
 
@@ -307,8 +351,11 @@ function M.merge_lists(left, right)
 	return combined
 end
 
--- Fuzzy matching: returns score (0-100) for how well pattern matches text
--- Higher score = better match
+---Fuzzy matching: returns score (0-100) for how well pattern matches text
+---Higher score = better match
+---@param pattern string|nil Pattern to match
+---@param text string|nil Text to match against
+---@return number score Match score (0-100)
 function M.fuzzy_match(pattern, text)
 	if not pattern or not text then
 		return 0
@@ -355,6 +402,10 @@ function M.fuzzy_match(pattern, text)
 	return 0
 end
 
+---Binary search for lower bound in sorted table
+---@param tbl table Sorted table to search
+---@param target any Target value to find
+---@return number index The lower bound index
 function M.lower_bound(tbl, target)
 	local low = 1
 	local high = #tbl + 1
@@ -371,6 +422,8 @@ function M.lower_bound(tbl, target)
 	return low
 end
 
+---Shuffle table in-place using Fisher-Yates algorithm
+---@param t table Table to shuffle
 function M.shuffle_table(t)
 	local n = #t
 	for i = n, 2, -1 do

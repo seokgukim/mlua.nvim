@@ -175,8 +175,6 @@ LSP Management Commands ~
 :MluaRestart                                                    *:MluaRestart*
     Restart the mLua language server for the current buffer
 
-Debug Commands ~
-
 :MluaDebug                                                        *:MluaDebug*
     Show mLua LSP debug information and status
 

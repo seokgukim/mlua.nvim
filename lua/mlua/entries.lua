@@ -1,19 +1,46 @@
+-- Entry file parser for .map, .ui, .model, .collisiongroupset files
+-- Parses MSW content files and extracts entity/component information
+
 local uv = vim.loop or vim.uv
 local utils = require("mlua.utils")
 
 local M = {}
 
+---@type table<string, table> Project entry cache
 local project_entry_cache = {}
 
+---@type string Glob pattern for entry files
 local entry_glob_pattern = "**/*.{map,ui,model,collisiongroupset}"
 
+---@class ComponentItem
+---@field name string Component type name
+---@field enable boolean|nil Whether component is enabled
+
+---@class EntityItem
+---@field id string|nil Entity ID
+---@field path string|nil Entity path
+---@field name string|nil Entity name
+---@field enable boolean|nil Whether entity is enabled
+---@field visible boolean|nil Whether entity is visible
+---@field modelId string|nil Model ID
+---@field components ComponentItem[] Components
+
+---@class EntryItem
+---@field uri string File URI
+---@field entryKey string Entry key
+---@field contentType string Content type (x-mod/map, x-mod/ui, etc.)
+---@field contentProto table Parsed content
+
+---Parse component items from JSON
+---@param json_components table|nil JSON components array
+---@return ComponentItem[] items Parsed component items
 local function parse_component_items(json_components)
 	if not utils.is_list(json_components) then
 		return {}
 	end
 
 	local items = {}
-	for _, component in ipairs(json_components) do
+	for _, component in ipairs(json_components --[[@as table]]) do
 		if type(component) == "table" then
 			table.insert(items, {
 				name = component["@type"],
@@ -25,13 +52,16 @@ local function parse_component_items(json_components)
 	return items
 end
 
+---Parse entity items from JSON
+---@param json_entities table|nil JSON entities array
+---@return EntityItem[] entities Parsed entity items
 local function parse_entity_items(json_entities)
 	if not utils.is_list(json_entities) then
 		return {}
 	end
 
 	local entities = {}
-	for _, entity in ipairs(json_entities) do
+	for _, entity in ipairs(json_entities --[[@as table]]) do
 		if type(entity) == "table" then
 			local summary = entity.jsonString or {}
 			table.insert(entities, {
@@ -49,6 +79,9 @@ local function parse_entity_items(json_entities)
 	return entities
 end
 
+---Parse map content proto
+---@param content table|nil Content to parse
+---@return table|nil parsed Parsed content
 local function parse_map_content_proto(content)
 	if type(content) ~= "table" then
 		return nil
@@ -58,10 +91,16 @@ local function parse_map_content_proto(content)
 	return { entities = entities }
 end
 
+---Parse UI content proto (same as map)
+---@param content table|nil Content to parse
+---@return table|nil parsed Parsed content
 local function parse_ui_content_proto(content)
 	return parse_map_content_proto(content)
 end
 
+---Parse model content proto
+---@param content table|nil Content to parse
+---@return table|nil parsed Parsed content
 local function parse_model_content_proto(content)
 	if type(content) ~= "table" then
 		return nil
@@ -82,6 +121,9 @@ local function parse_model_content_proto(content)
 	}
 end
 
+---Parse collision group set proto
+---@param content table|nil Content to parse
+---@return table|nil parsed Parsed content
 local function parse_collision_group_set_proto(content)
 	if type(content) ~= "table" then
 		return nil
@@ -111,6 +153,10 @@ local function parse_collision_group_set_proto(content)
 	}
 end
 
+---Build entry item from path and payload
+---@param path string File path
+---@param payload table JSON payload
+---@return EntryItem|nil entry The entry item or nil
 local function build_entry_item(path, payload)
 	if type(payload) ~= "table" then
 		return nil
@@ -149,7 +195,10 @@ local function build_entry_item(path, payload)
 	}
 end
 
-local function load_entry_file(path)
+---Load and parse a single entry file
+---@param path string|nil File path
+---@return EntryItem|nil entry The entry item or nil
+function M.load_entry_file(path)
 	if not path or path == "" then
 		return nil
 	end
@@ -175,9 +224,13 @@ end
 
 -- Default entry items are already in predefines, no need to load separately
 
--- Schema version must match what the LSP server expects
+---@type number Cache schema version
 local CACHE_SCHEMA_VERSION = 2
 
+---Load cached entry items from disk
+---@param installed_dir string|nil Install directory
+---@param root_dir string|nil Root directory
+---@return EntryItem[]|nil items Cached items or nil
 local function load_cached_entry_items(installed_dir, root_dir)
 	local cache_file = utils.build_project_cache_path(installed_dir, root_dir, "entry-items.json")
 	if not cache_file then
@@ -240,6 +293,11 @@ local function load_cached_entry_items(installed_dir, root_dir)
 	return items
 end
 
+---Store entry items to disk cache
+---@param installed_dir string|nil Install directory
+---@param root_dir string|nil Root directory
+---@param items EntryItem[] Items to store
+---@param sources table[] Source file info with mtime
 local function store_cached_entry_items(installed_dir, root_dir, items, sources)
 	local cache_file = utils.build_project_cache_path(installed_dir, root_dir, "entry-items.json")
 	if not cache_file then
@@ -260,6 +318,9 @@ local function store_cached_entry_items(installed_dir, root_dir, items, sources)
 	utils.write_text_file(cache_file, encoded)
 end
 
+---Get cached project items from memory
+---@param root_dir string Root directory
+---@return EntryItem[]|nil items Cached items or nil
 local function get_cached_project_items(root_dir)
 	local cached = project_entry_cache[root_dir]
 	if cached == nil then
@@ -285,6 +346,9 @@ local function get_cached_project_items(root_dir)
 	return cached.items
 end
 
+---Set cached project items in memory
+---@param root_dir string|nil Root directory
+---@param items EntryItem[] Items to cache
 local function set_cached_project_items(root_dir, items)
 	if not root_dir or root_dir == "" then
 		return
@@ -296,7 +360,10 @@ local function set_cached_project_items(root_dir, items)
 	}
 end
 
--- Async version of collect_entry_items
+---Async version of collect_entry_items
+---@param installed_dir string|nil Install directory
+---@param root_dir string|nil Root directory
+---@param callback function Called with entry items when complete
 function M.collect_entry_items_async(installed_dir, root_dir, callback)
 	if not root_dir or root_dir == "" then
 		callback({})
@@ -339,7 +406,7 @@ function M.collect_entry_items_async(installed_dir, root_dir, callback)
 
 			vim.schedule(function()
 				if vim.fn.filereadable(normalized_path) == 1 then
-					local entry = load_entry_file(normalized_path)
+					local entry = M.load_entry_file(normalized_path)
 					if entry then
 						table.insert(project_items_new, entry)
 						if uv and uv.fs_stat then
@@ -370,6 +437,11 @@ function M.collect_entry_items_async(installed_dir, root_dir, callback)
 	end)
 end
 
+---Collect entry items (synchronous)
+---@param installed_dir string|nil Install directory
+---@param root_dir string|nil Root directory
+---@param document_items table|nil Document items (unused, for API compatibility)
+---@return EntryItem[] items Entry items
 function M.collect_entry_items(installed_dir, root_dir, document_items)
 	if not root_dir or root_dir == "" then
 		return {}
@@ -393,7 +465,7 @@ function M.collect_entry_items(installed_dir, root_dir, document_items)
 			for _, path in ipairs(files) do
 				local normalized_path = vim.fn.fnamemodify(path, ":p")
 				if vim.fn.filereadable(normalized_path) == 1 then
-					local entry = load_entry_file(normalized_path)
+					local entry = M.load_entry_file(normalized_path)
 					if entry then
 						table.insert(project_items, entry)
 						if uv and uv.fs_stat then
