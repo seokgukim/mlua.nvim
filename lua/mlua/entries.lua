@@ -40,7 +40,7 @@ local function parse_component_items(json_components)
 	end
 
 	local items = {}
-	for _, component in ipairs(json_components) do
+	for _, component in ipairs(json_components --[[@as table]]) do
 		if type(component) == "table" then
 			table.insert(items, {
 				name = component["@type"],
@@ -61,7 +61,7 @@ local function parse_entity_items(json_entities)
 	end
 
 	local entities = {}
-	for _, entity in ipairs(json_entities) do
+	for _, entity in ipairs(json_entities --[[@as table]]) do
 		if type(entity) == "table" then
 			local summary = entity.jsonString or {}
 			table.insert(entities, {

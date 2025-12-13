@@ -5,7 +5,7 @@
 
 local M = {}
 
----@class MluaDapConfig
+---@class MluaDapLocalConfig
 ---@field port number Default port to connect to (default: 51300)
 ---@field host string Host to connect to (default: "localhost")
 ---@field timeout number Connection timeout in ms (default: 30000)

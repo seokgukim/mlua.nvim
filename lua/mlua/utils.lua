@@ -111,7 +111,8 @@ function M.normalize_for_node(path)
 		-- Check if path is already normalized (contains forward slashes)
 		if path:match("^%a:[/\\]") or path:match("^/") then
 			-- Convert backslashes to forward slashes for require()
-			return path:gsub("\\", "/")
+			local normalized = path:gsub("\\", "/")
+			return normalized
 		end
 		return path
 	end

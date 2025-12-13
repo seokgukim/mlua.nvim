@@ -3,10 +3,10 @@
 
 local utils = require("mlua.utils")
 local entries = require("mlua.entries")
-local workspace = require("mlua.workspace")
 local predefines = require("mlua.predefines")
 local document = require("mlua.document")
 local execspace = require("mlua.execspace")
+local workspace = require("mlua.workspace")
 
 local M = {}
 
@@ -116,6 +116,7 @@ end
 ---Download and install the mLua language server
 ---@param version string|nil Version to download (defaults to latest)
 ---@return boolean success Whether the download succeeded
+---@return string|nil install_dir Directory where the language server was installed
 function M.download(version)
 	version = M.get_latest_version() or "1.1.4"
 
@@ -319,19 +320,10 @@ function M.setup(opts)
 			-- Check if LSP is already running for this buffer
 			local clients = vim.lsp.get_clients({ name = "mlua", bufnr = args.buf })
 			if #clients > 0 then
-				-- LSP already attached, just setup triggers for this buffer
+				-- LSP already attached, setup execspace for this buffer
 				local client = clients[1]
-				local fname = vim.api.nvim_buf_get_name(args.buf)
-				local root_dir = utils.find_root(fname)
-				if root_dir then
-					workspace.setup_for_buffer(
-						client,
-						args.buf,
-						root_dir,
-						opts.max_matches,
-						opts.max_modified_lines,
-						opts.trigger_count
-					)
+				if opts.execspace_decorations ~= false then
+					execspace.setup_for_buffer(client, args.buf)
 				end
 				return
 			end
@@ -467,18 +459,6 @@ function M.setup(opts)
 				track_buffer(client, bufnr)
 				-- Don't manually request diagnostics - the server will push them automatically
 				-- This prevents duplicate diagnostics from appearing
-
-				-- Setup workspace loading for project buffers
-				if is_project then
-					workspace.setup_for_buffer(
-						client,
-						bufnr,
-						root_dir,
-						opts.max_matches,
-						opts.max_modified_lines,
-						opts.trigger_count
-					)
-				end
 
 				-- Setup ExecSpace decorations (virtual text for Client/Server/etc)
 				if opts.execspace_decorations ~= false then
@@ -846,7 +826,8 @@ vim.api.nvim_create_user_command("MluaReloadWorkspace", function()
 			local fname = vim.api.nvim_buf_get_name(bufnr)
 			local root_dir = utils.find_root(fname)
 			if root_dir then
-				workspace.reload_workspace(client, bufnr, root_dir, opt.max_matches)
+				local _, installed_dir = M.get_installed_version()
+				workspace.reload_workspace(client, bufnr, root_dir, installed_dir)
 			end
 		end
 	end

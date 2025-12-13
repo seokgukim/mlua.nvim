@@ -3,9 +3,29 @@
 
 local M = {}
 
+---@class MluaLspConfig
+---@field enabled boolean Enable LSP
+---@field cmd string[]|nil LSP command (auto-detected if nil)
+---@field capabilities table|nil LSP capabilities
+---@field on_attach function|nil User callback on attach
+---@field max_matches number Max fuzzy matches per token
+---@field max_modified_lines number Max modified lines to consider for re-indexing
+---@field trigger_count number Triggers load file after N characters typed
+---@field execspace_decorations boolean Enable ExecSpace virtual text decorations
+
+---@class MluaTreesitterConfig
+---@field enabled boolean Enable Tree-sitter integration
+---@field parser_path string Path to tree-sitter-mlua
+
+---@class MluaDapConfig
+---@field enabled boolean Enable DAP
+---@field port number Debug server port
+---@field host string Debug server host
+---@field timeout number|nil Connection timeout
+
 ---@class MluaConfig
 ---@field lsp MluaLspConfig LSP configuration options
----@field treesitter boolean Enable Tree-sitter integration
+---@field treesitter MluaTreesitterConfig Tree-sitter configuration options
 ---@field dap MluaDapConfig DAP (debugger) configuration options
 local default_config = {
 	lsp = {

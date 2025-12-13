@@ -8,7 +8,7 @@ local protocol = require("mlua.dap.protocol")
 local uv = vim.uv or vim.loop
 
 ---@class MluaDebugSession
----@field socket userdata|nil TCP socket
+---@field socket userdata|nil TCP socket (uv_tcp_t)
 ---@field receiveBuffer string Buffer for incoming data
 ---@field running boolean Whether the session is running
 ---@field requestId number Current request ID counter
@@ -16,8 +16,8 @@ local uv = vim.uv or vim.loop
 ---@field currentStack table|nil Current stack trace
 ---@field currentStackFrameId number Currently selected stack frame ID
 ---@field variableContainers table<number, table> Variable containers by reference
----@field heartbeatTimer userdata|nil Heartbeat timer
----@field timeoutTimer userdata|nil Receive timeout timer
+---@field heartbeatTimer userdata|nil Heartbeat timer (uv_timer_t)
+---@field timeoutTimer userdata|nil Receive timeout timer (uv_timer_t)
 ---@field onEvent function|nil Callback for DAP events
 ---@field pendingBreakpoints table<string, table> Pending breakpoints by file path
 
