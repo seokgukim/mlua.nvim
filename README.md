@@ -294,6 +294,58 @@ This is a personal project and not an official one from the MSW team.
 2. Start MSW with debugging enabled
 3. Use `:MluaDebugAttach` to connect to the debugger
 
+## DAP (Debugging) Integration
+
+### Automatic Setup (Recommended)
+
+Enable DAP in your mlua.nvim config:
+
+```lua
+require("mlua").setup({
+  dap = {
+    enabled = true,
+    port = 51300,
+    host = "localhost",
+  },
+})
+```
+
+### Manual nvim-dap Configuration
+
+If you prefer manual control or want to integrate with your existing nvim-dap config:
+
+```lua
+-- In your dap config (e.g., lua/config/dap.lua)
+local dap = require("dap")
+
+dap.adapters.mlua = function(callback, config)
+  local host = config.host or "localhost"
+  local port = config.port or 51300
+
+  local mlua_dap = require("mlua.dap.adapter")
+  mlua_dap.connect(host, port, function(err)
+    if err then
+      vim.notify("mLua debugger: " .. err, vim.log.levels.ERROR)
+      return
+    end
+    callback({
+      type = "pipe",
+      pipe = nil, -- Communication handled by mlua.dap.adapter
+    })
+  end)
+end
+
+dap.configurations.mlua = {
+  {
+    type = "mlua",
+    request = "attach",
+    name = "Attach to MSW Debugger",
+    port = 51300,
+    host = "localhost",
+  },
+}
+```
+
 ## DAP (Debugging) Commands
 
 When DAP is enabled, these commands become available:
