@@ -188,9 +188,16 @@ end
 
 ---Connect to debug server
 ---@param host string
----@param port number
+---@param port number|string
 ---@param callback function Called with nil on success, or error message on failure
 function M.connect(host, port, callback)
+	-- Ensure port is a number (uv.tcp:connect requires numeric port)
+	port = tonumber(port)
+	if not port then
+		callback("Invalid port: must be a number")
+		return
+	end
+
 	-- Initialize session
 	session = {
 		socket = nil,
