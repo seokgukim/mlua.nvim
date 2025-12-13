@@ -5,16 +5,25 @@ local utils = require("mlua.utils")
 
 local M = {}
 
--- Track loaded documents per client
+---@type table<number, table<string, boolean>> Track loaded documents per client
 local loaded_documents = {}
 
--- File watcher handles
+---@type table<number, number> File watcher handles (client_id -> augroup_id)
 local watchers = {}
 
--- Event handlers (client_id -> handlers)
+---@type table<number, table> Event handlers (client_id -> handlers)
 local event_handlers = {}
 
--- Collect all .mlua documents in a workspace (synchronously with progress)
+---@class DocumentItem
+---@field uri string Document URI
+---@field languageId string Language ID (always "mlua")
+---@field version number Document version
+---@field text string Document content
+
+---Collect all .mlua documents in a workspace (synchronously with progress)
+---@param root_dir string|nil Root directory to search
+---@param progress_callback function|nil Called with (current, total, filename)
+---@return DocumentItem[] documents List of document items
 function M.collect_all_documents(root_dir, progress_callback)
 	if not root_dir or root_dir == "" then
 		return {}
@@ -72,7 +81,10 @@ function M.collect_all_documents(root_dir, progress_callback)
 	return documents
 end
 
--- Collect documents asynchronously (non-blocking)
+---Collect documents asynchronously (non-blocking)
+---@param root_dir string|nil Root directory to search
+---@param callback function Called with documents list when complete
+---@param progress_callback function|nil Called with (current, total, filename)
 function M.collect_all_documents_async(root_dir, callback, progress_callback)
 	if not root_dir or root_dir == "" then
 		if callback then
@@ -186,7 +198,9 @@ function M.collect_all_documents_async(root_dir, callback, progress_callback)
 	})
 end
 
--- Setup file watcher for a workspace
+---Setup file watcher for a workspace
+---@param client table LSP client
+---@param root_dir string|nil Root directory to watch
 function M.setup_file_watcher(client, root_dir)
 	if not client or not root_dir then
 		return
@@ -348,7 +362,10 @@ function M.setup_file_watcher(client, root_dir)
 	watchers[client.id] = group
 end
 
--- Setup entry file watcher (for .map, .ui, .model, .collisiongroupset files)
+---Setup entry file watcher (for .map, .ui, .model, .collisiongroupset files)
+---@param client table LSP client
+---@param root_dir string|nil Root directory to watch
+---@param entries_module table|nil Entries module for parsing
 function M.setup_entry_watcher(client, root_dir, entries_module)
 	if not client or not root_dir then
 		return
@@ -418,7 +435,8 @@ function M.setup_entry_watcher(client, root_dir, entries_module)
 	})
 end
 
--- Clean up watchers for a client
+---Clean up watchers for a client
+---@param client_id number LSP client ID
 function M.cleanup(client_id)
 	if watchers[client_id] then
 		pcall(vim.api.nvim_del_augroup_by_id, watchers[client_id])

@@ -1,8 +1,9 @@
 -- Debug helper for mLua LSP
--- Place this in your config and call :lua require('mlua.debug').check_status()
+-- Provides diagnostic functions for troubleshooting
 
 local M = {}
 
+---Check mLua LSP status and print diagnostic information
 function M.check_status()
 	print("=== mLua LSP Debug Info ===\n")
 
@@ -87,6 +88,7 @@ function M.check_status()
 	print("\n=== End Debug Info ===")
 end
 
+---Restart the mLua LSP server
 function M.restart_lsp()
 	print("Restarting mLua LSP...")
 	local clients = vim.lsp.get_clients({ name = "mlua" })
@@ -100,13 +102,13 @@ function M.restart_lsp()
 	end, 500)
 end
 
--- Command to show LSP logs
+---Open the LSP log file
 function M.show_logs()
 	local log_path = vim.lsp.get_log_path()
 	vim.cmd("edit " .. log_path)
 end
 
--- Show detailed server capabilities
+---Show detailed LSP server capabilities
 function M.show_capabilities()
 	local clients = vim.lsp.get_clients({ name = "mlua" })
 	if #clients == 0 then

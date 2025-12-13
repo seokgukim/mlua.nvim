@@ -1,10 +1,11 @@
 -- Simple workspace management - VS Code style
+-- Handles file indexing, on-demand loading, and fuzzy matching
+
 local utils = require("mlua.utils")
 
 local M = {}
 
--- Basic Lua keywords for reference
--- Do not load these via workspace
+---@type string[] Basic Lua keywords (not loaded via workspace)
 local basic_keywords = {
 	"and",
 	"break",
@@ -67,16 +68,24 @@ for _, kw in ipairs(basic_keywords) do
 	basic_keyword_set[kw] = true
 end
 
--- Track which files are loaded in LSP (per client)
+---@type table<number, table<string, boolean>> Track which files are loaded in LSP (per client)
 local loaded_files = {}
 
--- Workspace file index: root_dir -> { basename (lowercase) -> { full paths } }
+---@type table<string, table<string, boolean>> Workspace file state: root_dir -> { path -> loaded }
 local path_state = {}
+
+---@type table<string, table<string, string[]>> Path buckets by first character
 local path_buckets = {}
+
+---@type table<string, table<string, string[]>> Filename index: root_dir -> { name -> paths }
 local filename_index = {}
+
+---@type table<string, table<string, table<string, string[]>>> Trigram index for fuzzy matching
 local trigram_index = {}
 
--- Build workspace file index (async, non-blocking)
+---Build workspace file index (async, non-blocking)
+---@param root_dir string|nil Root directory to index
+---@param callback function|nil Called with total_paths when complete
 function M.build_workspace_index_async(root_dir, callback)
 	if not root_dir then
 		if callback then
@@ -211,7 +220,10 @@ function M.build_workspace_index_async(root_dir, callback)
 	})
 end
 
--- Load a file into LSP via didOpen
+---Load a file into LSP via didOpen
+---@param client_id number LSP client ID
+---@param file_path string|nil File path to load
+---@return boolean success Whether the file was loaded
 function M.load_file(client_id, file_path)
 	if not file_path or file_path == "" then
 		return false
@@ -285,7 +297,9 @@ function M.load_file(client_id, file_path)
 	return true
 end
 
--- Extract tokens from line(s)
+---Extract tokens from lines of code
+---@param lines string[] Lines to extract tokens from
+---@return table<string, boolean> tokens Token set
 local function extract_tokens_from_lines(lines)
 	local tokens = {}
 
@@ -300,7 +314,7 @@ local function extract_tokens_from_lines(lines)
 			token_normalized = token:lower()
 
 			if token_normalized == "" or basic_keyword_set[token_normalized] then
-			-- Skip empty tokens and basic keywords
+				-- Skip empty tokens and basic keywords
 			else
 				tokens[token_normalized] = true
 			end
@@ -310,7 +324,13 @@ local function extract_tokens_from_lines(lines)
 	return tokens
 end
 
--- Find related files based on buffer content
+---Find related files based on buffer content and load them
+---@param client_id number LSP client ID
+---@param bufnr number Buffer number
+---@param root_dir string|nil Root directory
+---@param line_numbers number[]|number|nil Line numbers to inspect (-1 for all)
+---@param max_matches number|nil Maximum matches per token
+---@param exact_only boolean|nil Only match exact filenames
 function M.load_related_files(client_id, bufnr, root_dir, line_numbers, max_matches, exact_only)
 	-- Normalize root_dir for consistent lookup (especially important on Windows)
 	root_dir = utils.normalize_path(root_dir)
@@ -478,7 +498,13 @@ function M.load_related_files(client_id, bufnr, root_dir, line_numbers, max_matc
 	end
 end
 
--- Setup for a buffer (called from on_attach)
+---Setup for a buffer (called from on_attach)
+---@param client table LSP client
+---@param bufnr number Buffer number
+---@param root_dir string|nil Root directory
+---@param max_matches number Maximum matches per token
+---@param max_modified_lines number Maximum modified lines to track
+---@param trigger_count number Characters typed before triggering load
 function M.setup_for_buffer(client, bufnr, root_dir, max_matches, max_modified_lines, trigger_count)
 	if not root_dir then
 		return
@@ -552,6 +578,11 @@ function M.setup_for_buffer(client, bufnr, root_dir, max_matches, max_modified_l
 	})
 end
 
+---Reload workspace index and files
+---@param client table LSP client
+---@param bufnr number Buffer number
+---@param root_dir string|nil Root directory
+---@param max_matches number Maximum matches per token
 function M.reload_workspace(client, bufnr, root_dir, max_matches)
 	if not root_dir then
 		return

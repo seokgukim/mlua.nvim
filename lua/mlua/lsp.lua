@@ -1,3 +1,6 @@
+-- LSP client setup and management for mLua
+-- Handles installation, configuration, and client lifecycle
+
 local utils = require("mlua.utils")
 local entries = require("mlua.entries")
 local workspace = require("mlua.workspace")
@@ -7,9 +10,15 @@ local execspace = require("mlua.execspace")
 
 local M = {}
 
+---@type table<number, table<number, boolean>> Attached buffers per client
 local attached_buffers = {}
-local lsp_starting = {} -- Track if LSP is starting for a root_dir
 
+---@type table<string, boolean> Track if LSP is starting for a root_dir
+local lsp_starting = {}
+
+---Register buffer cleanup handler
+---@param client_id number LSP client ID
+---@param bufnr number Buffer number
 local function register_buffer_cleanup(client_id, bufnr)
 	vim.api.nvim_create_autocmd("BufUnload", {
 		buffer = bufnr,
@@ -23,6 +32,8 @@ local function register_buffer_cleanup(client_id, bufnr)
 	})
 end
 
+---Check if Node.js is available
+---@return boolean available Whether Node.js is available
 local function check_node_available()
 	local handle = io.popen("node --version 2>&1")
 	if not handle then
@@ -35,6 +46,12 @@ local function check_node_available()
 	return result:match("v%d+%.%d+%.%d+") ~= nil
 end
 
+---@class LspConfig
+---@field install_dir string Installation directory
+---@field publisher string Extension publisher
+---@field extension string Extension name
+
+---@type LspConfig
 M.config = {
 	install_dir = vim.fn.has("win32") == 1 and vim.fn.expand("~/AppData/Local/nvim-data/mlua-lsp")
 		or vim.fn.expand("~/.local/share/nvim/mlua-lsp"),
@@ -42,6 +59,8 @@ M.config = {
 	extension = "mlua",
 }
 
+---Get the latest version from VS Code marketplace
+---@return string|nil version The latest version or nil
 function M.get_latest_version()
 	local data = string.format(
 		'{"filters":[{"criteria":[{"filterType":7,"value":"%s.%s"}]}],"flags":914}',
@@ -77,6 +96,9 @@ function M.get_latest_version()
 	return version
 end
 
+---Get the installed version and directory
+---@return string|nil version The installed version or nil
+---@return string|nil install_dir The installation directory or nil
 function M.get_installed_version()
 	local pattern = M.config.install_dir .. "/" .. M.config.publisher .. "." .. M.config.extension .. "-*"
 	local dirs = vim.fn.glob(pattern, false, true)
@@ -91,6 +113,9 @@ function M.get_installed_version()
 	return version, latest_dir
 end
 
+---Download and install the mLua language server
+---@param version string|nil Version to download (defaults to latest)
+---@return boolean success Whether the download succeeded
 function M.download(version)
 	version = M.get_latest_version() or "1.1.4"
 
@@ -193,6 +218,7 @@ function M.update()
 	end
 end
 
+---Check installed vs latest version
 function M.check_version()
 	local latest_version = M.get_latest_version()
 	local installed_version = M.get_installed_version()
@@ -219,6 +245,7 @@ function M.check_version()
 	end
 end
 
+---Uninstall the mLua language server
 function M.uninstall()
 	local installed_version, installed_dir = M.get_installed_version()
 
@@ -245,6 +272,8 @@ function M.uninstall()
 	vim.notify("mLua v" .. installed_version .. " uninstalled", vim.log.levels.INFO)
 end
 
+---Setup the LSP client
+---@param opts table|nil Configuration options
 function M.setup(opts)
 	opts = opts or {}
 

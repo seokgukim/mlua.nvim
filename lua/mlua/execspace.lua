@@ -3,7 +3,7 @@
 
 local M = {}
 
--- ExecSpace decoration kinds (matching VS Code's enum)
+---@enum ExecSpaceKind ExecSpace decoration kinds (matching VS Code's enum)
 M.ExecSpaceKind = {
 	InvalidExecSpace = 0,
 	ClientOnly = 1,
@@ -14,7 +14,11 @@ M.ExecSpaceKind = {
 	Overlap = 6,
 }
 
--- Virtual text labels for each kind
+---@class ExecSpaceLabel
+---@field text string Display text
+---@field hl string Highlight group name
+
+---@type table<number, ExecSpaceLabel> Virtual text labels for each kind
 local labels = {
 	[0] = { text = "⚠ Invalid", hl = "DiagnosticError" },
 	[1] = { text = "ClientOnly", hl = "MluaExecSpaceClientOnly" },
@@ -25,13 +29,19 @@ local labels = {
 	[6] = { text = "Overlap", hl = "MluaExecSpaceOverlap" },
 }
 
--- Namespace for virtual text
+---@type number Namespace for virtual text
 local ns_id = vim.api.nvim_create_namespace("mlua_execspace")
 
--- Track decorations per buffer
+---@class ExecSpaceDecoration
+---@field line number Line number (0-indexed)
+---@field kind number ExecSpace kind
+---@field text string Display text
+---@field hl string Highlight group
+
+---@type table<number, ExecSpaceDecoration[]> Track decorations per buffer
 local buffer_decorations = {}
 
--- Setup highlight groups
+---Setup highlight groups
 local function setup_highlights()
 	-- Define highlight groups if they don't exist
 	local highlights = {
@@ -52,7 +62,8 @@ local function setup_highlights()
 	end
 end
 
--- Clear decorations for a buffer
+---Clear decorations for a buffer
+---@param bufnr number Buffer number
 function M.clear_decorations(bufnr)
 	if not vim.api.nvim_buf_is_valid(bufnr) then
 		return
@@ -61,8 +72,10 @@ function M.clear_decorations(bufnr)
 	buffer_decorations[bufnr] = nil
 end
 
--- Set decorations for a buffer from LSP response
--- response format: [[kind, [line1, line2, ...]], ...]
+---Set decorations for a buffer from LSP response
+---Response format: [[kind, [line1, line2, ...]], ...]
+---@param bufnr number Buffer number
+---@param response table|nil LSP response with decoration data
 function M.set_decorations(bufnr, response)
 	if not vim.api.nvim_buf_is_valid(bufnr) then
 		return
@@ -119,7 +132,9 @@ function M.set_decorations(bufnr, response)
 	buffer_decorations[bufnr] = decorations
 end
 
--- Request decorations from LSP server
+---Request decorations from LSP server
+---@param client table LSP client
+---@param bufnr number Buffer number
 function M.request_decorations(client, bufnr)
 	if not client or not vim.api.nvim_buf_is_valid(bufnr) then
 		return
@@ -142,7 +157,9 @@ function M.request_decorations(client, bufnr)
 	end, bufnr)
 end
 
--- Setup for a buffer (called from on_attach)
+---Setup for a buffer (called from on_attach)
+---@param client table LSP client
+---@param bufnr number Buffer number
 function M.setup_for_buffer(client, bufnr)
 	setup_highlights()
 
@@ -178,7 +195,8 @@ function M.setup_for_buffer(client, bufnr)
 	})
 end
 
--- Toggle decorations for current buffer
+---Toggle decorations for current buffer
+---@param bufnr number|nil Buffer number (defaults to current)
 function M.toggle(bufnr)
 	bufnr = bufnr or vim.api.nvim_get_current_buf()
 
@@ -192,7 +210,7 @@ function M.toggle(bufnr)
 	end
 end
 
--- Refresh decorations for all visible buffers
+---Refresh decorations for all visible buffers
 function M.refresh_all()
 	for _, win in ipairs(vim.api.nvim_list_wins()) do
 		local bufnr = vim.api.nvim_win_get_buf(win)
