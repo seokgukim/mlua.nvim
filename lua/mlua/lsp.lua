@@ -367,16 +367,7 @@ function M.setup(opts)
 					relatedDocumentSupport = false,
 				}
 
-			local function refresh_attached_diagnostics(client)
-				-- Diagnostics are handled automatically by the LSP server
-				-- No manual refresh needed
-			end
-
 			local handlers = vim.tbl_extend("force", {
-				["workspace/diagnostic/refresh"] = function(_, _, ctx)
-					-- Let Neovim handle diagnostic refresh automatically
-					return vim.NIL
-				end,
 				-- Handle server's request to rename file when script name changes
 				["msw.protocol.renameFile"] = function(_, params)
 					if not params or not params.uri or not params.newName then
@@ -436,6 +427,33 @@ function M.setup(opts)
 							end
 						end
 					end)
+				end,
+				["workspace/diagnostic/refresh"] = function(_, _, ctx)
+					local client_id = ctx.client_id
+					local client = vim.lsp.get_client_by_id(client_id)
+					if not client then
+						return vim.NIL
+					end
+
+					for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+						if vim.lsp.buf_is_attached(buf, client_id) then
+							local params = {
+								textDocument = { uri = vim.uri_from_bufnr(buf) },
+							}
+							client.request("textDocument/diagnostic", params, function(err, result, context)
+								if err then
+									return
+								end
+								if result and result.items then
+									vim.lsp.diagnostic.on_publish_diagnostics(nil, {
+										uri = params.textDocument.uri,
+										diagnostics = result.items,
+									}, { client_id = client_id })
+								end
+							end, buf)
+						end
+					end
+					return vim.NIL
 				end,
 			}, opts.handlers or {})
 
