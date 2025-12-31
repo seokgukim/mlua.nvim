@@ -8,9 +8,6 @@ local M = {}
 ---@field cmd string[]|nil LSP command (auto-detected if nil)
 ---@field capabilities table|nil LSP capabilities
 ---@field on_attach function|nil User callback on attach
----@field max_matches number Max fuzzy matches per token
----@field max_modified_lines number Max modified lines to consider for re-indexing
----@field trigger_count number Triggers load file after N characters typed
 ---@field execspace_decorations boolean Enable ExecSpace virtual text decorations
 
 ---@class MluaTreesitterConfig
@@ -26,9 +23,6 @@ local default_config = {
 		cmd = nil, -- Auto-detected from LSP module
 		capabilities = nil, -- Will be set from nvim-cmp if available
 		on_attach = nil, -- User callback
-		max_matches = 3, -- Max fuzzy matches per token (legacy, less relevant with full loading)
-		max_modified_lines = 5, -- Max modified lines to consider for re-indexing
-		trigger_count = 4, -- Triggers load file after N characters typed
 		execspace_decorations = true, -- Enable ExecSpace virtual text decorations
 	},
 	treesitter = {
@@ -121,9 +115,6 @@ function M.setup(opts)
 		-- Build LSP config
 		local lsp_config = vim.tbl_deep_extend("force", {
 			capabilities = capabilities,
-			max_matches = M.config.lsp.max_matches,
-			max_modified_lines = M.config.lsp.max_modified_lines,
-			trigger_count = M.config.lsp.trigger_count,
 			execspace_decorations = M.config.lsp.execspace_decorations,
 			on_attach = function(client, bufnr)
 				-- Enable completion triggered by <c-x><c-o>
