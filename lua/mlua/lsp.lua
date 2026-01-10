@@ -440,7 +440,7 @@ function M.setup(opts)
 							local params = {
 								textDocument = { uri = vim.uri_from_bufnr(buf) },
 							}
-							client.request("textDocument/diagnostic", params, function(err, result, context)
+							client:request("textDocument/diagnostic", params, function(err, result, context)
 								if err then
 									return
 								end
