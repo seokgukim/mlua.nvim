@@ -816,48 +816,153 @@ function M.install_treesitter()
 	return true
 end
 
--- Commands
-vim.api.nvim_create_user_command("MluaInstall", M.download, { desc = "Install mLua language server" })
-vim.api.nvim_create_user_command("MluaUpdate", M.update, { desc = "Update mLua language server" })
-vim.api.nvim_create_user_command("MluaCheckVersion", M.check_version, { desc = "Check mLua version" })
-vim.api.nvim_create_user_command("MluaUninstall", M.uninstall, { desc = "Uninstall mLua language server" })
-vim.api.nvim_create_user_command(
-	"MluaTSInstall",
-	M.install_treesitter,
-	{ desc = "Install Tree-sitter parser for mLua" }
-)
-vim.api.nvim_create_user_command("MluaRestart", function()
-	vim.lsp.stop_client(vim.lsp.get_clients({ name = "mlua" }))
-	vim.defer_fn(function()
-		vim.cmd("edit")
-	end, 500)
-end, { desc = "Restart mLua language server" })
-vim.api.nvim_create_user_command("MluaReloadWorkspace", function()
-	local clients = vim.lsp.get_clients({ name = "mlua" })
-	for _, client in ipairs(clients) do
-		local tracked = attached_buffers[client.id]
-		if not tracked then
-			return
-		end
+-- Subcommand handlers
+local subcommands = {
+	install = { fn = function() M.download() end, desc = "Install mLua language server" },
+	update = { fn = function() M.update() end, desc = "Update mLua language server" },
+	version = { fn = function() M.check_version() end, desc = "Check mLua version" },
+	uninstall = { fn = function() M.uninstall() end, desc = "Uninstall mLua language server" },
+	tsinstall = { fn = function() M.install_treesitter() end, desc = "Install Tree-sitter parser for mLua" },
+	restart = {
+		fn = function()
+			vim.lsp.stop_client(vim.lsp.get_clients({ name = "mlua" }))
+			vim.defer_fn(function()
+				vim.cmd("edit")
+			end, 500)
+		end,
+		desc = "Restart mLua language server",
+	},
+	reload = {
+		fn = function()
+			local clients = vim.lsp.get_clients({ name = "mlua" })
+			for _, client in ipairs(clients) do
+				local tracked = attached_buffers[client.id]
+				if not tracked then
+					return
+				end
 
-		for bufnr in pairs(tracked) do
-			local fname = vim.api.nvim_buf_get_name(bufnr)
-			local root_dir = utils.find_root(fname)
-			if root_dir then
-				local _, installed_dir = M.get_installed_version()
-				workspace.reload_workspace(client, bufnr, root_dir, installed_dir)
+				for bufnr in pairs(tracked) do
+					local fname = vim.api.nvim_buf_get_name(bufnr)
+					local root_dir = utils.find_root(fname)
+					if root_dir then
+						local _, installed_dir = M.get_installed_version()
+						workspace.reload_workspace(client, bufnr, root_dir, installed_dir)
+					end
+				end
 			end
+		end,
+		desc = "Reload mLua workspace index",
+	},
+	execspace = {
+		fn = function() execspace.toggle() end,
+		desc = "Toggle ExecSpace decorations",
+	},
+	execspacerefresh = {
+		fn = function() execspace.refresh_all() end,
+		desc = "Refresh ExecSpace decorations for all buffers",
+	},
+	-- LSP action commands
+	hover = {
+		fn = function() vim.lsp.buf.hover() end,
+		desc = "Show hover information",
+	},
+	definition = {
+		fn = function() vim.lsp.buf.definition() end,
+		desc = "Go to definition",
+	},
+	references = {
+		fn = function() vim.lsp.buf.references() end,
+		desc = "Find references",
+	},
+	declaration = {
+		fn = function() vim.lsp.buf.declaration() end,
+		desc = "Go to declaration",
+	},
+	implementation = {
+		fn = function() vim.lsp.buf.implementation() end,
+		desc = "Go to implementation",
+	},
+	rename = {
+		fn = function() vim.lsp.buf.rename() end,
+		desc = "Rename symbol",
+	},
+	codeaction = {
+		fn = function() vim.lsp.buf.code_action() end,
+		desc = "Code action",
+	},
+	format = {
+		fn = function() vim.lsp.buf.format({ async = true }) end,
+		desc = "Format document",
+	},
+	inlayhints = {
+		fn = function()
+			local bufnr = vim.api.nvim_get_current_buf()
+			local enabled = vim.lsp.inlay_hint.is_enabled({ bufnr = bufnr })
+			vim.lsp.inlay_hint.enable(not enabled, { bufnr = bufnr })
+		end,
+		desc = "Toggle inlay hints",
+	},
+}
+
+-- Main :Mlua command with subcommands
+vim.api.nvim_create_user_command("Mlua", function(opts)
+	local args = vim.split(opts.args, "%s+", { trimempty = true })
+	local subcmd = args[1]
+
+	if not subcmd or subcmd == "" then
+		-- Show help
+		vim.notify("Usage: :Mlua <subcommand>", vim.log.levels.INFO)
+		vim.notify("Available subcommands:", vim.log.levels.INFO)
+		for name, cmd in pairs(subcommands) do
+			vim.notify(string.format("  %s - %s", name, cmd.desc), vim.log.levels.INFO)
 		end
+		return
 	end
-end, { desc = "Reload mLua workspace index" })
 
-vim.api.nvim_create_user_command("MluaToggleExecSpace", function()
-	execspace.toggle()
-end, { desc = "Toggle ExecSpace decorations" })
+	local cmd = subcommands[subcmd]
+	if cmd then
+		cmd.fn()
+	else
+		vim.notify(string.format("Unknown subcommand: %s", subcmd), vim.log.levels.ERROR)
+	end
+end, {
+	nargs = "?",
+	complete = function(arglead, cmdline, cursorpos)
+		local names = vim.tbl_keys(subcommands)
+		table.sort(names)
+		if arglead == "" then
+			return names
+		end
+		return vim.tbl_filter(function(name)
+			return name:find("^" .. arglead) ~= nil
+		end, names)
+	end,
+	desc = "Mlua commands",
+})
 
-vim.api.nvim_create_user_command("MluaRefreshExecSpace", function()
-	execspace.refresh_all()
-end, { desc = "Refresh ExecSpace decorations for all buffers" })
+-- Helper to create deprecated command alias
+local function create_deprecated_alias(old_name, new_subcmd, handler)
+	vim.api.nvim_create_user_command(old_name, function()
+		vim.notify(
+			string.format(":%s is deprecated and will be removed in a future version. Use :Mlua %s instead.", old_name, new_subcmd),
+			vim.log.levels.WARN
+		)
+		handler()
+	end, { desc = string.format("[Deprecated] Use :Mlua %s instead", new_subcmd) })
+end
+
+-- Function to register deprecated command aliases (called conditionally from setup)
+function M.register_deprecated_commands()
+	create_deprecated_alias("MluaInstall", "install", function() M.download() end)
+	create_deprecated_alias("MluaUpdate", "update", function() M.update() end)
+	create_deprecated_alias("MluaCheckVersion", "version", function() M.check_version() end)
+	create_deprecated_alias("MluaUninstall", "uninstall", function() M.uninstall() end)
+	create_deprecated_alias("MluaTSInstall", "tsinstall", function() M.install_treesitter() end)
+	create_deprecated_alias("MluaRestart", "restart", subcommands.restart.fn)
+	create_deprecated_alias("MluaReloadWorkspace", "reload", subcommands.reload.fn)
+	create_deprecated_alias("MluaToggleExecSpace", "execspace", function() execspace.toggle() end)
+	create_deprecated_alias("MluaRefreshExecSpace", "execspacerefresh", function() execspace.refresh_all() end)
+end
 
 -- Export execspace module for external access
 M.execspace = execspace
