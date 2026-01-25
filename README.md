@@ -33,7 +33,7 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 
 - **Neovim** >= 0.9.0
 - **Node.js** (for running the language server)
-- [mLua LSP](https://github.com/seokgukim/mlua-lsp) (you can automatically install it to `~/.local/share/nvim/mlua-lsp` by running `:MluaInstall` command)
+- [mLua LSP](https://github.com/seokgukim/mlua-lsp) (you can automatically install it to `~/.local/share/nvim/mlua-lsp` by running `:Mlua install` command)
 - Optional: [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) for Tree-sitter support
 - Optional: [nvim-cmp](https://github.com/hrsh7th/nvim-cmp) for enhanced autocompletion
 - Optional: [tree-sitter-mlua](https://github.com/seokgukim/tree-sitter-mlua) for Tree-sitter parser
@@ -66,7 +66,7 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 For enhanced syntax highlighting with Tree-sitter, simply run:
 
 ```vim
-:MluaTSInstall
+:Mlua tsinstall
 ```
 
 This command will automatically:
@@ -102,6 +102,20 @@ require("mlua").setup({
     enabled = true,
     parser_path = vim.fn.expand("~/tree-sitter-mlua"), -- Path to tree-sitter-mlua repo
   },
+  keymaps = {
+    -- Set to false to disable a specific keymap, or change the key
+    hover = "K",
+    definition = "gd",
+    references = "gr",
+    declaration = "gD",
+    implementation = "gi",
+    rename = "<leader>rn",
+    code_action = "<leader>ca",
+    format = "<leader>f",
+    toggle_inlay_hints = "<leader>h",
+  },
+  -- Or set keymaps = false to disable all default keymaps
+  deprecated_commands = true, -- Set to false to hide deprecated command aliases from completion
 })
 ```
 
@@ -141,32 +155,57 @@ require("mlua").setup({
 
 ## Commands
 
-### LSP Management
+The plugin provides a unified `:Mlua` command with subcommands:
 
-| Command             | Description                                                    |
-| ------------------- | -------------------------------------------------------------- |
-| `:MluaInstall`      | Install mLua language server                                   |
-| `:MluaUpdate`       | Update mLua language server to latest version                  |
-| `:MluaCheckVersion` | Check installed vs latest LSP version                          |
-| `:MluaUninstall`    | Uninstall mLua language server                                 |
-| `:MluaTSInstall`    | Automatically install Tree-sitter parser (clone, build, setup) |
-| `:MluaRestart`      | Restart the language server                                    |
-| `:MluaReloadWorkspace` | Reload all workspace files (re-index and re-load)           |
-| `:MluaToggleExecSpace` | Toggle ExecSpace decorations on/off                         |
-| `:MluaRefreshExecSpace` | Refresh ExecSpace decorations for all buffers              |
+### LSP Management Commands
 
-### Buffer-local LSP Commands
+| Command                     | Description                                                    |
+| --------------------------- | -------------------------------------------------------------- |
+| `:Mlua install`             | Install mLua language server                                   |
+| `:Mlua update`              | Update mLua language server to latest version                  |
+| `:Mlua version`             | Check installed vs latest LSP version                          |
+| `:Mlua uninstall`           | Uninstall mLua language server                                 |
+| `:Mlua tsinstall`           | Automatically install Tree-sitter parser (clone, build, setup) |
+| `:Mlua restart`             | Restart the language server                                    |
+| `:Mlua reload`              | Reload all workspace files (re-index and re-load)              |
+| `:Mlua execspace`           | Toggle ExecSpace decorations on/off                            |
+| `:Mlua execspacerefresh`    | Refresh ExecSpace decorations for all buffers                  |
 
-When a `.mlua` file is opened with LSP attached, these commands become available:
+### LSP Action Commands
 
-| Command                 | Description                |
-| ----------------------- | -------------------------- |
-| `:MluaDefinition`       | Go to definition           |
-| `:MluaReferences`       | Find references            |
-| `:MluaHover`            | Show hover information     |
-| `:MluaRename`           | Rename symbol under cursor |
-| `:MluaFormat`           | Format current document    |
-| `:MluaToggleInlayHints` | Toggle inlay hints on/off  |
+| Command                     | Description                                                    |
+| --------------------------- | -------------------------------------------------------------- |
+| `:Mlua hover`               | Show hover information                                         |
+| `:Mlua definition`          | Go to definition                                               |
+| `:Mlua references`          | Find references                                                |
+| `:Mlua declaration`         | Go to declaration                                              |
+| `:Mlua implementation`      | Go to implementation                                           |
+| `:Mlua rename`              | Rename symbol                                                  |
+| `:Mlua codeaction`          | Code action                                                    |
+| `:Mlua format`              | Format document                                                |
+| `:Mlua inlayhints`          | Toggle inlay hints                                             |
+
+### Legacy Commands (Deprecated)
+
+The old command style is still supported but deprecated. A warning will be shown when using them:
+
+| Old Command             | New Command               |
+| ----------------------- | ------------------------- |
+| `:MluaInstall`          | `:Mlua install`           |
+| `:MluaUpdate`           | `:Mlua update`            |
+| `:MluaCheckVersion`     | `:Mlua version`           |
+| `:MluaUninstall`        | `:Mlua uninstall`         |
+| `:MluaTSInstall`        | `:Mlua tsinstall`         |
+| `:MluaRestart`          | `:Mlua restart`           |
+| `:MluaReloadWorkspace`  | `:Mlua reload`            |
+| `:MluaToggleExecSpace`  | `:Mlua execspace`         |
+| `:MluaRefreshExecSpace` | `:Mlua execspacerefresh`  |
+| `:MluaHover`            | `:Mlua hover`             |
+| `:MluaDefinition`       | `:Mlua definition`        |
+| `:MluaReferences`       | `:Mlua references`        |
+| `:MluaRename`           | `:Mlua rename`            |
+| `:MluaFormat`           | `:Mlua format`            |
+| `:MluaToggleInlayHints` | `:Mlua inlayhints`        |
 
 ### Default LSP Keybindings (mlua buffers only)
 
@@ -184,7 +223,29 @@ When the mLua LSP attaches to a buffer, these keybindings are automatically set:
 | `<leader>f`  | `vim.lsp.buf.format`    | Format document        |
 | `<leader>h`  | Toggle inlay hints      | Toggle inlay hints     |
 
-**Note:** If you want to override these keybindings, you can add your own `LspAttach` autocmd in your config that runs after the plugin's.
+### Customizing Keybindings
+
+You can customize keybindings via the `keymaps` config:
+
+```lua
+require("mlua").setup({
+  keymaps = {
+    hover = "K",           -- Keep default
+    definition = "gd",     -- Keep default
+    references = "<leader>gr", -- Custom key
+    rename = false,        -- Disable this keymap
+    -- ... other keys
+  },
+})
+```
+
+To disable all default keymaps:
+
+```lua
+require("mlua").setup({
+  keymaps = false,
+})
+```
 
 ## Performance
 

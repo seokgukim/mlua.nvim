@@ -14,9 +14,22 @@ local M = {}
 ---@field enabled boolean Enable Tree-sitter integration
 ---@field parser_path string Path to tree-sitter-mlua
 
+---@class MluaKeymapsConfig
+---@field hover string|false Keymap for hover (default: "K")
+---@field definition string|false Keymap for go to definition (default: "gd")
+---@field references string|false Keymap for find references (default: "gr")
+---@field declaration string|false Keymap for go to declaration (default: "gD")
+---@field implementation string|false Keymap for go to implementation (default: "gi")
+---@field rename string|false Keymap for rename (default: "<leader>rn")
+---@field code_action string|false Keymap for code action (default: "<leader>ca")
+---@field format string|false Keymap for format (default: "<leader>f")
+---@field toggle_inlay_hints string|false Keymap for toggle inlay hints (default: "<leader>h")
+
 ---@class MluaConfig
 ---@field lsp MluaLspConfig LSP configuration options
 ---@field treesitter MluaTreesitterConfig Tree-sitter configuration options
+---@field keymaps MluaKeymapsConfig|false Keymap configuration (false to disable all keymaps)
+---@field deprecated_commands boolean Enable deprecated command aliases (default: true)
 local default_config = {
 	lsp = {
 		enabled = true,
@@ -29,6 +42,18 @@ local default_config = {
 		enabled = true,
 		parser_path = vim.fn.expand("~/tree-sitter-mlua"),
 	},
+	keymaps = {
+		hover = "K",
+		definition = "gd",
+		references = "gr",
+		declaration = "gD",
+		implementation = "gi",
+		rename = "<leader>rn",
+		code_action = "<leader>ca",
+		format = "<leader>f",
+		toggle_inlay_hints = "<leader>h",
+	},
+	deprecated_commands = true,
 }
 
 ---@type MluaConfig
@@ -103,6 +128,11 @@ function M.setup(opts)
 	if M.config.lsp.enabled then
 		local lsp = require("mlua.lsp")
 
+		-- Register deprecated commands if enabled
+		if M.config.deprecated_commands then
+			lsp.register_deprecated_commands()
+		end
+
 		-- Get capabilities from nvim-cmp if available and not provided
 		local capabilities = M.config.lsp.capabilities
 		if not capabilities then
@@ -163,45 +193,51 @@ function M.setup(opts)
 					local bufnr = args.buf
 					local opts = { buffer = bufnr, silent = true }
 
-					-- LSP navigation and info commands
-					vim.api.nvim_buf_create_user_command(bufnr, "MluaHover", function()
-						vim.lsp.buf.hover()
-					end, { desc = "Show hover information" })
+					-- Deprecated buffer-local LSP commands (kept for backwards compatibility)
+					if M.config.deprecated_commands then
+						local function create_deprecated_buf_cmd(name, new_subcmd, handler)
+							vim.api.nvim_buf_create_user_command(bufnr, name, function()
+								vim.notify(
+									string.format(":%s is deprecated. Use :Mlua %s instead.", name, new_subcmd),
+									vim.log.levels.WARN
+								)
+								handler()
+							end, { desc = string.format("[Deprecated] Use :Mlua %s instead", new_subcmd) })
+						end
 
-					vim.api.nvim_buf_create_user_command(bufnr, "MluaDefinition", function()
-						vim.lsp.buf.definition()
-					end, { desc = "Go to definition" })
+						create_deprecated_buf_cmd("MluaHover", "hover", function() vim.lsp.buf.hover() end)
+						create_deprecated_buf_cmd("MluaDefinition", "definition", function() vim.lsp.buf.definition() end)
+						create_deprecated_buf_cmd("MluaReferences", "references", function() vim.lsp.buf.references() end)
+						create_deprecated_buf_cmd("MluaRename", "rename", function() vim.lsp.buf.rename() end)
+						create_deprecated_buf_cmd("MluaFormat", "format", function() vim.lsp.buf.format({ async = true }) end)
+						create_deprecated_buf_cmd("MluaToggleInlayHints", "inlayhints", function()
+							local enabled = vim.lsp.inlay_hint.is_enabled({ bufnr = bufnr })
+							vim.lsp.inlay_hint.enable(not enabled, { bufnr = bufnr })
+						end)
+					end
 
-					vim.api.nvim_buf_create_user_command(bufnr, "MluaReferences", function()
-						vim.lsp.buf.references()
-					end, { desc = "Find references" })
+					-- Configurable LSP keymaps (buffer-local, only for mlua LSP)
+					local keymaps = M.config.keymaps
+					if keymaps ~= false then
+						local function set_keymap(key, action, desc)
+							if key and key ~= false then
+								vim.keymap.set("n", key, action, vim.tbl_extend("force", opts, { desc = desc }))
+							end
+						end
 
-					vim.api.nvim_buf_create_user_command(bufnr, "MluaRename", function()
-						vim.lsp.buf.rename()
-					end, { desc = "Rename symbol" })
-
-					vim.api.nvim_buf_create_user_command(bufnr, "MluaFormat", function()
-						vim.lsp.buf.format({ async = true })
-					end, { desc = "Format document" })
-
-					vim.api.nvim_buf_create_user_command(bufnr, "MluaToggleInlayHints", function()
-						local enabled = vim.lsp.inlay_hint.is_enabled({ bufnr = bufnr })
-						vim.lsp.inlay_hint.enable(not enabled, { bufnr = bufnr })
-					end, { desc = "Toggle inlay hints" })
-
-					-- Default LSP keymaps (buffer-local, only for mlua LSP)
-					vim.keymap.set("n", "K", vim.lsp.buf.hover, vim.tbl_extend("force", opts, { desc = "Hover" }))
-					vim.keymap.set("n", "gd", vim.lsp.buf.definition, vim.tbl_extend("force", opts, { desc = "Go to definition" }))
-					vim.keymap.set("n", "gr", vim.lsp.buf.references, vim.tbl_extend("force", opts, { desc = "Find references" }))
-					vim.keymap.set("n", "gD", vim.lsp.buf.declaration, vim.tbl_extend("force", opts, { desc = "Go to declaration" }))
-					vim.keymap.set("n", "gi", vim.lsp.buf.implementation, vim.tbl_extend("force", opts, { desc = "Go to implementation" }))
-					vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, vim.tbl_extend("force", opts, { desc = "Rename symbol" }))
-					vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, vim.tbl_extend("force", opts, { desc = "Code action" }))
-					vim.keymap.set("n", "<leader>f", function() vim.lsp.buf.format({ async = true }) end, vim.tbl_extend("force", opts, { desc = "Format" }))
-					vim.keymap.set("n", "<leader>h", function()
-						local enabled = vim.lsp.inlay_hint.is_enabled({ bufnr = bufnr })
-						vim.lsp.inlay_hint.enable(not enabled, { bufnr = bufnr })
-					end, vim.tbl_extend("force", opts, { desc = "Toggle inlay hints" }))
+						set_keymap(keymaps.hover, vim.lsp.buf.hover, "Hover")
+						set_keymap(keymaps.definition, vim.lsp.buf.definition, "Go to definition")
+						set_keymap(keymaps.references, vim.lsp.buf.references, "Find references")
+						set_keymap(keymaps.declaration, vim.lsp.buf.declaration, "Go to declaration")
+						set_keymap(keymaps.implementation, vim.lsp.buf.implementation, "Go to implementation")
+						set_keymap(keymaps.rename, vim.lsp.buf.rename, "Rename symbol")
+						set_keymap(keymaps.code_action, vim.lsp.buf.code_action, "Code action")
+						set_keymap(keymaps.format, function() vim.lsp.buf.format({ async = true }) end, "Format")
+						set_keymap(keymaps.toggle_inlay_hints, function()
+							local enabled = vim.lsp.inlay_hint.is_enabled({ bufnr = bufnr })
+							vim.lsp.inlay_hint.enable(not enabled, { bufnr = bufnr })
+						end, "Toggle inlay hints")
+					end
 				end
 			end,
 		})

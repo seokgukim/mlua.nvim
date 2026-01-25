@@ -45,7 +45,7 @@ Minimum:
   • Neovim >= 0.9.0
 
 The plugin will automatically install the mLua LSP server when you run
-|:MluaInstall|.
+|:Mlua| install.
 
 Optional Dependencies:
   • nvim-treesitter: For Tree-sitter support
@@ -97,12 +97,12 @@ Performance branch benefits:
 
 After installation, install the LSP server: >vim
 
-  :MluaInstall
+  :Mlua install
 <
 
 For Tree-sitter support, install the parser: >vim
 
-  :MluaTSInstall
+  :Mlua tsinstall
 <
 This automatically clones the repository, installs dependencies,
 generates and compiles the parser, and sets up queries.
@@ -129,6 +129,17 @@ setup({opts})
         {parser_path} (string)  Path to tree-sitter-mlua repo
                                 (default: "~/tree-sitter-mlua")
 
+      {keymaps}     (table|false) Keymap configuration (false to disable all)
+        {hover}       (string|false) Hover keymap (default: "K")
+        {definition}  (string|false) Go to definition (default: "gd")
+        {references}  (string|false) Find references (default: "gr")
+        {declaration} (string|false) Go to declaration (default: "gD")
+        {implementation} (string|false) Go to implementation (default: "gi")
+        {rename}      (string|false) Rename symbol (default: "<leader>rn")
+        {code_action} (string|false) Code action (default: "<leader>ca")
+        {format}      (string|false) Format document (default: "<leader>f")
+        {toggle_inlay_hints} (string|false) Toggle inlay hints (default: "<leader>h")
+
     Example: >lua
 
       require("mlua").setup({
@@ -142,6 +153,19 @@ setup({opts})
           enabled = true,
           parser_path = vim.fn.expand("~/tree-sitter-mlua"),
         },
+        keymaps = {
+          hover = "K",
+          definition = "gd",
+          rename = "<leader>rn",
+          format = false,  -- Disable this keymap
+        },
+      })
+<
+
+    Disable all default keymaps: >lua
+
+      require("mlua").setup({
+        keymaps = false,
       })
 <
 
@@ -153,88 +177,118 @@ setup({opts})
 ==============================================================================
 5. Commands                                             *mlua.nvim-commands*
 
-LSP Management Commands ~
+The plugin provides a unified :Mlua command with subcommands.
+
+:Mlua {subcommand}                                                     *:Mlua*
+    Main command with the following subcommands:
+
+    LSP Management:
+    install           Install the mLua language server
+    update            Update to the latest version
+    version           Check installed vs latest version
+    uninstall         Uninstall the language server
+    tsinstall         Install Tree-sitter parser for mLua
+    restart           Restart the language server
+    reload            Reload workspace files
+    execspace         Toggle ExecSpace decorations
+    execspacerefresh  Refresh ExecSpace decorations
+
+    LSP Actions:
+    hover             Show hover information
+    definition        Go to definition
+    references        Find references
+    declaration       Go to declaration
+    implementation    Go to implementation
+    rename            Rename symbol
+    codeaction        Code action
+    format            Format document
+    inlayhints        Toggle inlay hints
+
+Legacy Commands (Deprecated) ~
+
+These commands still work but show a deprecation warning:
 
 :MluaInstall                                                    *:MluaInstall*
-    Install the mLua language server to ~/.local/share/nvim/mlua-lsp
+    [Deprecated] Use `:Mlua install` instead.
 
 :MluaUpdate                                                      *:MluaUpdate*
-    Update the mLua language server to the latest version
+    [Deprecated] Use `:Mlua update` instead.
 
 :MluaCheckVersion                                          *:MluaCheckVersion*
-    Check the installed LSP version vs latest available version
+    [Deprecated] Use `:Mlua version` instead.
 
 :MluaUninstall                                                *:MluaUninstall*
-    Uninstall the mLua language server
+    [Deprecated] Use `:Mlua uninstall` instead.
 
 :MluaTSInstall                                                *:MluaTSInstall*
-    Automatically install the Tree-sitter parser for mLua.
-    Clones repository, installs dependencies, generates and compiles parser.
-    Requires: git, Node.js/npm, and a C compiler
+    [Deprecated] Use `:Mlua tsinstall` instead.
 
 :MluaRestart                                                    *:MluaRestart*
-    Restart the mLua language server for the current buffer
+    [Deprecated] Use `:Mlua restart` instead.
 
-:MluaDebug                                                        *:MluaDebug*
-    Show mLua LSP debug information and status
+:MluaReloadWorkspace                                    *:MluaReloadWorkspace*
+    [Deprecated] Use `:Mlua reload` instead.
 
-:MluaLogs                                                          *:MluaLogs*
-    Open the LSP log file in a new buffer
+:MluaToggleExecSpace                                    *:MluaToggleExecSpace*
+    [Deprecated] Use `:Mlua execspace` instead.
 
-:MluaCapabilities                                          *:MluaCapabilities*
-    Display the full LSP server capabilities
-
-Buffer-local LSP Commands ~
-
-These commands are available when the LSP is attached to a `.mlua` buffer:
-
-:MluaDefinition                                              *:MluaDefinition*
-    Go to the definition of the symbol under cursor
-
-:MluaReferences                                              *:MluaReferences*
-    Find all references to the symbol under cursor
+:MluaRefreshExecSpace                                  *:MluaRefreshExecSpace*
+    [Deprecated] Use `:Mlua execspacerefresh` instead.
 
 :MluaHover                                                        *:MluaHover*
-    Show hover information for the symbol under cursor
+    [Deprecated] Use `:Mlua hover` instead.
+
+:MluaDefinition                                              *:MluaDefinition*
+    [Deprecated] Use `:Mlua definition` instead.
+
+:MluaReferences                                              *:MluaReferences*
+    [Deprecated] Use `:Mlua references` instead.
 
 :MluaRename                                                      *:MluaRename*
-    Rename the symbol under cursor
+    [Deprecated] Use `:Mlua rename` instead.
 
 :MluaFormat                                                      *:MluaFormat*
-    Format the current document
+    [Deprecated] Use `:Mlua format` instead.
 
 :MluaToggleInlayHints                                  *:MluaToggleInlayHints*
-    Toggle inlay hints on/off for the current buffer
+    [Deprecated] Use `:Mlua inlayhints` instead.
 
 
 ==============================================================================
 6. Keymaps                                               *mlua.nvim-keymaps*
 
-The plugin does not set any keymaps by default. You can create your own
-keybindings using the commands above.
+When the mLua LSP attaches to a buffer, default keybindings are set.
+These can be customized via the `keymaps` configuration option.
 
-Example configuration: >lua
+Default keybindings:
 
-  vim.api.nvim_create_autocmd("LspAttach", {
-    callback = function(args)
-      local client = vim.lsp.get_client_by_id(args.data.client_id)
-      if client and client.name == "mlua" then
-        local bufnr = args.buf
-        local opts = { buffer = bufnr, noremap = true, silent = true }
-        
-        -- Navigation
-        vim.keymap.set("n", "gd", "<cmd>MluaDefinition<cr>", opts)
-        vim.keymap.set("n", "gr", "<cmd>MluaReferences<cr>", opts)
-        
-        -- Information
-        vim.keymap.set("n", "K", "<cmd>MluaHover<cr>", opts)
-        
-        -- Actions
-        vim.keymap.set("n", "<leader>rn", "<cmd>MluaRename<cr>", opts)
-        vim.keymap.set("n", "<leader>f", "<cmd>MluaFormat<cr>", opts)
-        vim.keymap.set("n", "<leader>ih", "<cmd>MluaToggleInlayHints<cr>", opts)
-      end
-    end,
+  Key            Action                     Description ~
+  K              vim.lsp.buf.hover          Show hover information
+  gd             vim.lsp.buf.definition     Go to definition
+  gr             vim.lsp.buf.references     Find references
+  gD             vim.lsp.buf.declaration    Go to declaration
+  gi             vim.lsp.buf.implementation Go to implementation
+  <leader>rn     vim.lsp.buf.rename         Rename symbol
+  <leader>ca     vim.lsp.buf.code_action    Code action
+  <leader>f      vim.lsp.buf.format         Format document
+  <leader>h      Toggle inlay hints         Toggle inlay hints
+
+Customizing keybindings: >lua
+
+  require("mlua").setup({
+    keymaps = {
+      hover = "K",              -- Keep default
+      definition = "gd",        -- Keep default
+      references = "<leader>gr", -- Custom key
+      rename = false,           -- Disable this keymap
+    },
+  })
+<
+
+Disable all keybindings: >lua
+
+  require("mlua").setup({
+    keymaps = false,
   })
 <
 
