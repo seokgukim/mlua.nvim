@@ -65,25 +65,7 @@ local function setup_treesitter()
 		return false
 	end
 
-	local ok, parsers = pcall(require, "nvim-treesitter.parsers")
-	if not ok then
-		return false
-	end
-
-	-- Register the mLua parser
-	local parser_config = parsers.get_parser_configs()
-	parser_config.mlua = {
-		install_info = {
-			url = M.config.treesitter.parser_path,
-			files = { "src/parser.c" },
-			generate_requires_npm = false,
-			requires_generate_from_grammar = false,
-		},
-		filetype = "mlua",
-	}
-
-	-- Add queries path for Tree-sitter to find highlights.scm
-	local queries_path = M.config.treesitter.parser_path .. "/queries"
+	-- Add plugin runtimepath so Tree-sitter can find queries/mlua/highlights.scm
 	vim.opt.runtimepath:append(M.config.treesitter.parser_path)
 
 	-- Verify parser is available
@@ -148,7 +130,7 @@ function M.setup(opts)
 			execspace_decorations = M.config.lsp.execspace_decorations,
 			on_attach = function(client, bufnr)
 				-- Enable completion triggered by <c-x><c-o>
-				vim.api.nvim_buf_set_option(bufnr, "omnifunc", "v:lua.vim.lsp.omnifunc")
+				vim.bo[bufnr].omnifunc = "v:lua.vim.lsp.omnifunc"
 
 				-- Enable inlay hints if supported
 				if client.server_capabilities.inlayHintProvider then
@@ -258,7 +240,7 @@ function M.check_treesitter()
 	local info = {
 		filetype = vim.bo[bufnr].filetype,
 		parser_installed = vim.fn.filereadable(vim.fn.stdpath("data") .. "/site/parser/mlua.so") == 1,
-		highlighter_active = vim.treesitter.highlighter.active[bufnr] ~= nil,
+		highlighter_active = pcall(vim.treesitter.get_parser, bufnr, "mlua"),
 		parser_path = M.config.treesitter.parser_path,
 		queries_path = M.config.treesitter.parser_path .. "/queries",
 	}
