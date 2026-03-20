@@ -7,16 +7,21 @@ endif
 let b:did_ftplugin = 1
 
 " Check if Tree-sitter is available and has mlua parser
-" If so, disable Vim syntax in favor of Tree-sitter
 lua << EOF
-  local ts_available = pcall(require, 'nvim-treesitter')
   local has_parser = false
-  if ts_available then
-    local ok, parsers = pcall(require, 'nvim-treesitter.parsers')
-    if ok and parsers.has_parser('mlua') then
-      has_parser = true
-      vim.b.ts_highlight = true
-    end
+  
+  -- Check via nvim-treesitter if available
+  local ok, parsers = pcall(require, 'nvim-treesitter.parsers')
+  if ok and type(parsers.has_parser) == 'function' then
+    has_parser = parsers.has_parser('mlua')
+  else
+    -- Fallback to native Neovim treesitter API
+    local success, _ = pcall(vim.treesitter.get_parser, 0, 'mlua')
+    has_parser = success
+  end
+  
+  if has_parser then
+    vim.b.ts_highlight = true
   end
   vim.b.mlua_has_treesitter = has_parser
 EOF
@@ -112,9 +117,14 @@ lua << EOF
   vim.api.nvim_set_hl(0, '@lsp.type.enumMember.mlua', { link = 'Constant' })
   vim.api.nvim_set_hl(0, '@lsp.type.event.mlua', { link = 'Special' })
   
+  -- Specific tokens used by msw.mlua language server
+  vim.api.nvim_set_hl(0, '@lsp.type.reserved.mlua', { link = 'Keyword' })
+  vim.api.nvim_set_hl(0, '@lsp.type.global.mlua', { link = 'Constant' })
+  
   -- Token modifiers
   vim.api.nvim_set_hl(0, '@lsp.mod.readonly.mlua', { link = 'Constant' })
   vim.api.nvim_set_hl(0, '@lsp.mod.static.mlua', { link = 'Special' })
   vim.api.nvim_set_hl(0, '@lsp.mod.deprecated.mlua', { link = 'Error' })
+  vim.api.nvim_set_hl(0, '@lsp.mod.documentation.mlua', { link = 'SpecialComment' })
 EOF
 endif
