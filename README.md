@@ -31,12 +31,10 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 
 ## Requirements
 
-- **Neovim** >= 0.9.0
-- **Node.js** (for running the language server)
-- [mLua LSP](https://github.com/seokgukim/mlua-lsp) (you can automatically install it to `~/.local/share/nvim/mlua-lsp` by running `:Mlua install` command)
+- **Neovim** >= 0.11.0 (uses `vim.lsp.config` / `vim.lsp.enable` API)
+- **Node.js** >= 16.0.0 (for running the language server)
 - Optional: [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter) for Tree-sitter support
 - Optional: [nvim-cmp](https://github.com/hrsh7th/nvim-cmp) for enhanced autocompletion
-- Optional: [tree-sitter-mlua](https://github.com/seokgukim/tree-sitter-mlua) for Tree-sitter parser
 
 ## Installation
 
@@ -61,29 +59,56 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 }
 ```
 
-## Tree-sitter Parser Installation
+**Development version (dev branch) — JS proxy layer, Neovim 0.11+ required:**
 
-For enhanced syntax highlighting with Tree-sitter, simply run:
-
-```vim
-:Mlua tsinstall
+```lua
+{
+  "seokgukim/mlua.nvim",
+  branch = "dev",
+  dependencies = {
+    "nvim-treesitter/nvim-treesitter", -- optional
+  },
+  ft = "mlua",
+  config = function()
+    require("mlua").setup({})
+  end,
+}
 ```
 
-This command will automatically:
+## Tree-sitter Parser Installation
 
-- Clone the [tree-sitter-mlua](https://github.com/seokgukim/tree-sitter-mlua) repository
-- Install npm dependencies
-- Generate the parser
-- Compile the parser for your system
-- Set up highlight queries
+The Tree-sitter parser for mLua ([tree-sitter-mlua](https://github.com/seokgukim/tree-sitter-mlua)) must be built and installed manually.
 
-**Requirements:**
+**Prerequisites:** Git, Node.js, npm, C compiler (gcc or clang; cl.exe on Windows)
 
-- Git
-- Node.js and npm
-- C compiler (gcc or cland, cl.exe on Windows)
+```bash
+# 1. Clone and build the parser
+git clone https://github.com/seokgukim/tree-sitter-mlua.git ~/tree-sitter-mlua
+cd ~/tree-sitter-mlua
+npm install
+npx tree-sitter generate
 
-**Note:** Restart Neovim after installation to activate Tree-sitter highlighting.
+# 2. Compile and install the parser binary
+mkdir -p ~/.local/share/nvim/site/parser
+cc -o ~/.local/share/nvim/site/parser/mlua.so \
+   -I./src src/parser.c \
+   -shared -Os -lstdc++ -fPIC
+```
+
+Then point `parser_path` to the cloned directory so mlua.nvim can find the highlight queries:
+
+```lua
+require("mlua").setup({
+  treesitter = {
+    enabled = true,
+    parser_path = vim.fn.expand("~/tree-sitter-mlua"), -- default
+  },
+})
+```
+
+Restart Neovim after installation.
+
+If you skip Tree-sitter installation, the plugin falls back to the bundled Vim syntax (`syntax/mlua.vim`) automatically.
 
 ## Configuration
 
@@ -93,7 +118,7 @@ Default configuration:
 require("mlua").setup({
   lsp = {
     enabled = true,
-    cmd = nil, -- Auto-detected from LSP module
+    cmd = nil, -- Auto-detected: runs javascript/mlua-server.js via Node.js
     capabilities = nil, -- Will use nvim-cmp capabilities if available
     on_attach = nil, -- Optional: your custom on_attach function
     execspace_decorations = true, -- Enable ExecSpace virtual text (Client/Server/etc)
@@ -115,20 +140,36 @@ require("mlua").setup({
     toggle_inlay_hints = "<leader>h",
   },
   -- Or set keymaps = false to disable all default keymaps
-  deprecated_commands = true, -- Set to false to hide deprecated command aliases from completion
 })
 ```
 
 ### How It Works
 
-The plugin now uses a **VS Code-style approach**:
+The plugin uses a **JS proxy layer** that sits between Neovim and the mLua language server:
 
-1. **On project open**: All `.mlua` files are loaded into the LSP server (like VS Code)
-2. **File watching**: New/deleted/modified files notify the LSP automatically
-3. **Entry files**: `.map`, `.ui`, `.model`, `.collisiongroupset` files are monitored for changes
-4. **ExecSpace decorations**: Virtual text shows method execution context (Client/Server/etc)
+```
+Neovim (LSP client)
+      │  stdio (JSON-RPC)
+      ▼
+javascript/mlua-server.js   ← entry point
+      │
+javascript/proxy.js         ← protocol adapter
+  ├─ Intercepts initialize → injects workspace files via initializationOptions
+  ├─ Handles pull diagnostics (textDocument/diagnostic) from cache
+  ├─ Bridges push-only clients via textDocument/publishDiagnostics
+  ├─ Translates msw.protocol.* custom messages to standard LSP
+  └─ Debounces file-change triggered diagnostic refreshes
+      │
+javascript/indexer.js       ← workspace indexer (with disk cache)
+javascript/watcher.js       ← fs.watch for .mlua / .ent files
+      │
+msw.mlua VS Code extension  ← actual language server
+```
 
-This provides **complete workspace awareness** from the start, matching VS Code's behavior.
+1. **On project open**: `indexer.js` scans all `.mlua` files and injects them into `initializationOptions` — no extra round-trips needed
+2. **Disk cache**: Index results are cached by snapshot (file count + size + mtime), so restarts are near-instant on unchanged projects
+3. **File watching**: `watcher.js` monitors `.mlua` and `.ent` files and triggers re-diagnostics on change
+4. **Diagnostic pull/push**: The proxy detects whether the client supports pull diagnostics (`textDocument/diagnostic`) and skips the redundant `textDocument/publishDiagnostics` push for pull-capable clients (Neovim 0.10+), preventing double rendering
 
 ### Custom LSP on_attach
 
@@ -165,7 +206,6 @@ The plugin provides a unified `:Mlua` command with subcommands:
 | `:Mlua update`              | Update mLua language server to latest version                  |
 | `:Mlua version`             | Check installed vs latest LSP version                          |
 | `:Mlua uninstall`           | Uninstall mLua language server                                 |
-| `:Mlua tsinstall`           | Automatically install Tree-sitter parser (clone, build, setup) |
 | `:Mlua restart`             | Restart the language server                                    |
 | `:Mlua reload`              | Reload all workspace files (re-index and re-load)              |
 | `:Mlua execspace`           | Toggle ExecSpace decorations on/off                            |
@@ -184,28 +224,6 @@ The plugin provides a unified `:Mlua` command with subcommands:
 | `:Mlua codeaction`          | Code action                                                    |
 | `:Mlua format`              | Format document                                                |
 | `:Mlua inlayhints`          | Toggle inlay hints                                             |
-
-### Legacy Commands (Deprecated)
-
-The old command style is still supported but deprecated. A warning will be shown when using them:
-
-| Old Command             | New Command               |
-| ----------------------- | ------------------------- |
-| `:MluaInstall`          | `:Mlua install`           |
-| `:MluaUpdate`           | `:Mlua update`            |
-| `:MluaCheckVersion`     | `:Mlua version`           |
-| `:MluaUninstall`        | `:Mlua uninstall`         |
-| `:MluaTSInstall`        | `:Mlua tsinstall`         |
-| `:MluaRestart`          | `:Mlua restart`           |
-| `:MluaReloadWorkspace`  | `:Mlua reload`            |
-| `:MluaToggleExecSpace`  | `:Mlua execspace`         |
-| `:MluaRefreshExecSpace` | `:Mlua execspacerefresh`  |
-| `:MluaHover`            | `:Mlua hover`             |
-| `:MluaDefinition`       | `:Mlua definition`        |
-| `:MluaReferences`       | `:Mlua references`        |
-| `:MluaRename`           | `:Mlua rename`            |
-| `:MluaFormat`           | `:Mlua format`            |
-| `:MluaToggleInlayHints` | `:Mlua inlayhints`        |
 
 ### Default LSP Keybindings (mlua buffers only)
 
@@ -249,12 +267,11 @@ require("mlua").setup({
 
 ## Performance
 
-The VS Code-style approach loads all workspace files at startup:
+The JS proxy layer significantly improves startup and runtime performance:
 
-- **Full context**: All files loaded initially, complete IntelliSense from start
-- **File watching**: Changes detected automatically via Neovim autocmds
-- **Async loading**: Files loaded in batches to avoid blocking UI
-- **Cached predefines**: Predefines cached to disk for faster restarts
+- **Disk-cached index**: File contents, entry items, and predefines are cached by workspace snapshot (SHA-256 keyed by file count + total size + max mtime). Subsequent restarts on unchanged projects skip re-scanning entirely
+- **Debounced re-diagnostics**: File changes trigger a single 800ms debounced diagnostic refresh rather than per-file requests
+- **No redundant pushes**: Pull-capable clients (Neovim 0.10+) receive diagnostics only via `textDocument/diagnostic`, avoiding double rendering from simultaneous push+pull delivery
 
 ## Debug Commands
 
@@ -279,14 +296,18 @@ mlua.nvim/
 ├── lua/
 │   ├── mlua.lua       # Main plugin module
 │   └── mlua/
-│       ├── lsp.lua        # LSP client setup and commands
-│       ├── document.lua   # Document service (file watching, lifecycle notifications)
+│       ├── lsp.lua        # LSP client setup (vim.lsp.config/enable), pull-diagnostic handler
 │       ├── execspace.lua  # ExecSpace decorations (Client/Server virtual text)
-│       ├── workspace.lua  # Workspace file loading and indexing
-│       ├── predefines.lua # Predefines loader with JSON compression
-│       ├── entries.lua    # Entry file parsing (.map, .ui, .model, etc.)
+│       ├── workspace.lua  # Workspace reload via custom notification
+│       ├── installer.lua  # VS Code extension download/install/update
 │       ├── debug.lua      # Debug utilities
-│       └── utils.lua      # Utility functions (path handling, fuzzy matching, etc.)
+│       └── utils.lua      # Utility functions (find_root, etc.)
+├── javascript/            # JS proxy layer (Node.js)
+│   ├── mlua-server.js     # Entry point; resolves install dir, delegates to proxy.js
+│   ├── proxy.js           # Protocol adapter between Neovim and the VS Code extension
+│   ├── indexer.js         # Workspace indexer (documents, entries, predefines)
+│   ├── cache.js           # Snapshot-based disk cache for indexer results
+│   └── watcher.js         # fs.watch for .mlua / .ent file changes
 ├── queries/           # Tree-sitter queries
 │   └── mlua/
 │       └── highlights.scm
@@ -322,9 +343,7 @@ mlua.nvim/
 
 ### Full Workspace Loading
 
-When you open a project, all `.mlua` files are loaded into the LSP server at startup.
-This matches VS Code's behavior and provides complete IntelliSense from the start.
-For very large projects, the initial load may take a moment, but you'll see a progress notification.
+When you open a project, all `.mlua` files are indexed and injected into the language server at startup via `initializationOptions`. This matches VS Code's behavior and provides complete IntelliSense from the start. On large projects the initial scan may take a moment, but subsequent restarts are near-instant thanks to the disk cache.
 
 ### Window Compatibility
 
