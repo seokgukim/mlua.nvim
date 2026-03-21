@@ -3,6 +3,7 @@
 # JavaScript wrapper: downloaded extension and runtime cache
 javascript/msw.mlua-*/
 javascript/cache/
+javascript/*.log
 
 # Tree-sitter compiled parsers
 parser/*.so
