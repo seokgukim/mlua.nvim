@@ -29,7 +29,6 @@ local M = {}
 ---@field lsp MluaLspConfig LSP configuration options
 ---@field treesitter MluaTreesitterConfig Tree-sitter configuration options
 ---@field keymaps MluaKeymapsConfig|false Keymap configuration (false to disable all keymaps)
----@field deprecated_commands boolean Enable deprecated command aliases (default: true)
 local default_config = {
 	lsp = {
 		enabled = true,
@@ -53,7 +52,6 @@ local default_config = {
 		format = "<leader>f",
 		toggle_inlay_hints = "<leader>h",
 	},
-	deprecated_commands = true,
 }
 
 ---@type MluaConfig
@@ -109,11 +107,6 @@ function M.setup(opts)
 	-- Setup LSP if enabled
 	if M.config.lsp.enabled then
 		local lsp = require("mlua.lsp")
-
-		-- Register deprecated commands if enabled
-		if M.config.deprecated_commands then
-			lsp.register_deprecated_commands()
-		end
 
 		-- Get capabilities from nvim-cmp if available and not provided
 		local capabilities = M.config.lsp.capabilities
@@ -172,33 +165,10 @@ function M.setup(opts)
 			callback = function(args)
 				local client = vim.lsp.get_client_by_id(args.data.client_id)
 				if client and client.name == "mlua" then
-					local bufnr = args.buf
-					local opts = { buffer = bufnr, silent = true }
+			local bufnr = args.buf
+				local opts = { buffer = bufnr, silent = true }
 
-					-- Deprecated buffer-local LSP commands (kept for backwards compatibility)
-					if M.config.deprecated_commands then
-						local function create_deprecated_buf_cmd(name, new_subcmd, handler)
-							vim.api.nvim_buf_create_user_command(bufnr, name, function()
-								vim.notify(
-									string.format(":%s is deprecated. Use :Mlua %s instead.", name, new_subcmd),
-									vim.log.levels.WARN
-								)
-								handler()
-							end, { desc = string.format("[Deprecated] Use :Mlua %s instead", new_subcmd) })
-						end
-
-						create_deprecated_buf_cmd("MluaHover", "hover", function() vim.lsp.buf.hover() end)
-						create_deprecated_buf_cmd("MluaDefinition", "definition", function() vim.lsp.buf.definition() end)
-						create_deprecated_buf_cmd("MluaReferences", "references", function() vim.lsp.buf.references() end)
-						create_deprecated_buf_cmd("MluaRename", "rename", function() vim.lsp.buf.rename() end)
-						create_deprecated_buf_cmd("MluaFormat", "format", function() vim.lsp.buf.format({ async = true }) end)
-						create_deprecated_buf_cmd("MluaToggleInlayHints", "inlayhints", function()
-							local enabled = vim.lsp.inlay_hint.is_enabled({ bufnr = bufnr })
-							vim.lsp.inlay_hint.enable(not enabled, { bufnr = bufnr })
-						end)
-					end
-
-					-- Configurable LSP keymaps (buffer-local, only for mlua LSP)
+				-- Configurable LSP keymaps (buffer-local, only for mlua LSP)
 					local keymaps = M.config.keymaps
 					if keymaps ~= false then
 						local function set_keymap(key, action, desc)

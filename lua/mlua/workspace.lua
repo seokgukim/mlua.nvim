@@ -1,12 +1,10 @@
--- Workspace management - simplified after VS Code-style full init
--- Now only handles workspace reload functionality
-
-local document = require("mlua.document")
-local entries = require("mlua.entries")
+-- Workspace management - simplified after Node.js wrapper migration
+-- Now only handles workspace reload functionality by sending a custom notification
+-- to the mlua-server.js proxy.
 
 local M = {}
 
----Reload workspace - re-collect all documents and notify LSP
+---Reload workspace - notify proxy to re-collect all documents and entries
 ---@param client table LSP client
 ---@param bufnr number Buffer number
 ---@param root_dir string|nil Root directory
@@ -18,41 +16,12 @@ function M.reload_workspace(client, bufnr, root_dir, installed_dir)
 
 	vim.notify("Reloading mLua workspace...", vim.log.levels.INFO)
 
-	-- Re-collect all documents
-	document.collect_all_documents_async(root_dir, function(documents)
-		-- Notify server about all documents
-		for _, doc in ipairs(documents) do
-			client:notify("textDocument/didOpen", {
-				textDocument = doc,
-			})
-		end
-
-		-- Re-collect entries if installed_dir provided
-		if installed_dir then
-			entries.collect_entry_items_async(installed_dir, root_dir, function(entry_items)
-				-- Notify server about entries
-				for _, entry in ipairs(entry_items) do
-					client:notify("msw.protocol.entryChanged", {
-						entryItem = entry,
-					})
-				end
-
-				vim.notify(
-					string.format("✓ Workspace reloaded: %d files, %d entries", #documents, #entry_items),
-					vim.log.levels.INFO
-				)
-			end)
-		else
-			vim.notify(
-				string.format("✓ Workspace reloaded: %d files", #documents),
-				vim.log.levels.INFO
-			)
-		end
-
-		-- Refresh diagnostics and semantic tokens
-		client:notify("msw.protocol.refreshDiagnostic", {})
-		client:notify("msw.protocol.refreshSemanticTokens", {})
-	end)
+	-- Send custom notification intercepted by the JS proxy
+	client:notify("mlua/reloadWorkspace", {
+		rootDir = root_dir,
+	})
+	
+	vim.notify("✓ Workspace reload requested", vim.log.levels.INFO)
 end
 
 return M

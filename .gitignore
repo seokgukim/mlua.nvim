@@ -1,1 +1,11 @@
 .github/workflows/*
+
+# JavaScript wrapper: downloaded extension and runtime cache
+javascript/msw.mlua-*/
+javascript/cache/
+
+# Tree-sitter compiled parsers
+parser/*.so
+parser/*.dll
+parser/*.dylib
+parser/
