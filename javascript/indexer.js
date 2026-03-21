@@ -59,6 +59,53 @@ function pathToUri(filePath) {
 }
 
 // ---------------------------------------------------------------------------
+// Project root resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the actual mLua project root from a given directory.
+ *
+ * Editors send rootUri based on what the user opened, which may be a
+ * subdirectory of the project (e.g. RootDesk/MyDesk/).  Walk upward until we
+ * find a directory that contains both "RootDesk" and "Environment" siblings —
+ * that is the true project root and must be indexed as a whole.
+ *
+ * If no such ancestor is found the original dir is returned unchanged.
+ *
+ * @param {string} dir  — starting directory (absolute path)
+ * @returns {string}    — resolved project root
+ */
+function resolveProjectRoot(dir) {
+  if (!dir) return dir;
+
+  let current = path.resolve(dir);
+  while (true) {
+    let hasRootDesk = false;
+    let hasEnvironment = false;
+    try {
+      const entries = fs.readdirSync(current, { withFileTypes: true });
+      for (const e of entries) {
+        if (!e.isDirectory()) continue;
+        if (e.name === 'RootDesk') hasRootDesk = true;
+        if (e.name === 'Environment') hasEnvironment = true;
+        if (hasRootDesk && hasEnvironment) break;
+      }
+    } catch (_) {
+      // unreadable directory — stop
+      break;
+    }
+
+    if (hasRootDesk && hasEnvironment) return current;
+
+    const parent = path.dirname(current);
+    if (parent === current) break; // filesystem root
+    current = parent;
+  }
+
+  return dir; // fallback: use what the editor sent
+}
+
+// ---------------------------------------------------------------------------
 // Entry parsing  (mirrors lua/mlua/entries.lua)
 // ---------------------------------------------------------------------------
 
@@ -303,8 +350,9 @@ function buildInitOptions(installedDir, rootDir) {
   let entryItems = [];
 
   if (rootDir) {
-    documentItems = collectDocuments(rootDir);
-    entryItems = collectEntryItems(rootDir);
+    const resolvedRoot = resolveProjectRoot(rootDir);
+    documentItems = collectDocuments(resolvedRoot);
+    entryItems = collectEntryItems(resolvedRoot);
   }
 
   return {
@@ -396,4 +444,5 @@ module.exports = {
   collectDocuments,
   buildInitOptions,
   parseEntryFile,
+  resolveProjectRoot,
 };

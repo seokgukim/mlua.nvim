@@ -6,10 +6,10 @@ const fs = require('fs');
 const indexer = require('./indexer.js');
 const { setupWatcher } = require('./watcher.js');
 
-function log(msg) {
+function logError(msg) {
   try {
     const logPath = path.join(__dirname, 'mlua-proxy.log');
-    fs.appendFileSync(logPath, new Date().toISOString() + ' ' + msg + '\n');
+    fs.appendFileSync(logPath, new Date().toISOString() + ' [ERROR] ' + msg + '\n');
   } catch(e) {}
 }
 
@@ -47,47 +47,52 @@ function encodeLspMessage(msg) {
 
 function start(opts) {
   const { serverPath, installedDir } = opts;
-  log(`Starting proxy. serverPath=${serverPath}, installedDir=${installedDir}`);
 
-  const child = spawn('node', [serverPath, '--stdio'], {
+  const child = spawn(process.execPath, [serverPath, '--stdio'], {
     stdio: ['pipe', 'pipe', 'pipe'],
     cwd: path.dirname(serverPath),
   });
 
   child.on('error', (err) => {
-    log('Child spawn error: ' + err.message);
+    logError('Child spawn error: ' + err.message);
     process.stderr.write('[mlua-server] Failed to spawn language server: ' + err.message + '\n');
     process.exit(1);
   });
 
   child.stderr.on('data', (d) => {
-    log('CHILD STDERR: ' + d.toString());
     process.stderr.write(d);
   });
 
   child.on('exit', (code, signal) => {
-    log(`Child exited code=${code} signal=${signal}`);
+    logError(`Child exited code=${code} signal=${signal}`);
     process.exit(code ?? 1);
   });
 
   process.on('uncaughtException', (err) => {
-    log('UNCAUGHT EXCEPTION: ' + err.message + '\n' + err.stack);
+    logError('UNCAUGHT EXCEPTION: ' + err.message + '\n' + err.stack);
     process.exit(1);
   });
 
   let initialized = false;
 
-  // Track open documents: uri -> { languageId, version, previousResultId }
+  // Track open documents: uri -> { languageId, version, previousResultId, text }
   const openDocs = new Map();
 
-  // URIs for which the editor has issued its own textDocument/diagnostic pull.
-  // Proxy-pull results for these are dropped to avoid duplicate diagnostics.
-  const editorPulledUris = new Set();
+  // Diagnostic cache: uri -> { items: [...], resultId: string }
+  // Populated by proxy-initiated pulls; served to editor pull requests.
+  // resultId is a monotonically increasing string so Zed can detect changes.
+  const diagCache = new Map();
+  let diagCacheSeq = 0;
 
   // Proxy-initiated diagnostic request id tracking: id -> uri
   // We use a string prefix so they never collide with editor-assigned numeric ids.
   let proxyDiagSeq = 0;
   const proxyDiagIds = new Map(); // proxyId -> uri
+  let diagDebounceTimer = null;
+
+  // Pending editor pull requests waiting for proxy to populate the cache:
+  // uri -> [{ id, params }]
+  const pendingEditorPulls = new Map();
 
   function sendProxyDiagnosticRequests() {
     for (const [uri, doc] of openDocs) {
@@ -95,14 +100,12 @@ function start(opts) {
       const params = { textDocument: { uri } };
       if (doc.previousResultId) params.previousResultId = doc.previousResultId;
       proxyDiagIds.set(proxyId, uri);
-      log('Proxy pull textDocument/diagnostic uri=' + uri + ' id=' + proxyId);
       child.stdin.write(encodeLspMessage({ jsonrpc: '2.0', id: proxyId, method: 'textDocument/diagnostic', params }));
     }
   }
 
   function handleClientMessage(msg) {
     if (!msg) return;
-    log('CLIENT MSG: ' + msg.method + ' id: ' + msg.id);
 
     if (!initialized && msg.method === 'initialize') {
       initialized = true;
@@ -117,36 +120,51 @@ function start(opts) {
       } else if (msg.params && msg.params.rootPath) {
         rootDir = msg.params.rootPath;
       }
-      
-      opts.currentRootDir = rootDir;
-      log('Resolved rootDir: ' + rootDir);
 
-      if (rootDir) {
-        setupWatcher(rootDir, (eventType, fullPath) => {
-          log(`File change detected: ${eventType} ${fullPath}`);
+      opts.currentRootDir = rootDir;
+
+      // Resolve the actual mLua project root (walks up to find RootDesk + Environment).
+      const resolvedRootDir = rootDir ? indexer.resolveProjectRoot(rootDir) : rootDir;
+
+      // Inject textDocument.diagnostic capability so the server activates its
+      // pull diagnostic provider — required for workspace/diagnostic/refresh
+      // to fire and for textDocument/diagnostic requests to return results.
+      if (msg.params && msg.params.capabilities) {
+        msg.params.capabilities.textDocument = msg.params.capabilities.textDocument || {};
+        msg.params.capabilities.textDocument.diagnostic = msg.params.capabilities.textDocument.diagnostic || {
+          dynamicRegistration: false,
+          relatedDocumentSupport: false,
+        };
+        msg.params.capabilities.workspace = msg.params.capabilities.workspace || {};
+        msg.params.capabilities.workspace.diagnostics = msg.params.capabilities.workspace.diagnostics || {
+          refreshSupport: true,
+        };
+      }
+
+      if (resolvedRootDir) {
+        setupWatcher(resolvedRootDir, (eventType, fullPath) => {
           if (fullPath.endsWith('.ent')) {
             try {
               const entry = indexer.parseEntryFile(fullPath);
               if (entry) {
-                child.stdin.write(encodeLspMessage({ 
-                  jsonrpc: '2.0', 
-                  method: 'msw.protocol.entryChanged', 
-                  params: { entryItem: entry } 
+                child.stdin.write(encodeLspMessage({
+                  jsonrpc: '2.0',
+                  method: 'msw.protocol.entryChanged',
+                  params: { entryItem: entry }
                 }));
               }
             } catch (e) {
-              log(`Error parsing entry ${fullPath}: ${e.message}`);
+              logError(`Error parsing entry ${fullPath}: ${e.message}`);
             }
           }
-        });
+        }, installedDir);
       }
 
       let initOptions;
       try {
-        initOptions = indexer.buildInitOptions(installedDir, rootDir || '');
-        log('Successfully built init options. Docs: ' + initOptions.documentItems.length + ' Entries: ' + initOptions.entryItems.length);
+        initOptions = indexer.buildInitOptions(installedDir, resolvedRootDir || '');
       } catch (err) {
-        log('indexer.buildInitOptions failed: ' + err.message + '\n' + err.stack);
+        logError('indexer.buildInitOptions failed: ' + err.message + '\n' + err.stack);
         initOptions = { documentItems: [], entryItems: [], modules: [], globalVariables: [], globalFunctions: [], stopwatch: false, profileMode: 0, capabilities: {} };
       }
 
@@ -163,35 +181,90 @@ function start(opts) {
     // Track open documents for proxy-initiated diagnostic pulls.
     if (msg.method === 'textDocument/didOpen' && msg.params?.textDocument) {
       const td = msg.params.textDocument;
-      openDocs.set(td.uri, { languageId: td.languageId, version: td.version, previousResultId: null });
+      openDocs.set(td.uri, { languageId: td.languageId, version: td.version, previousResultId: null, text: td.text });
     }
     if (msg.method === 'textDocument/didClose' && msg.params?.textDocument) {
       openDocs.delete(msg.params.textDocument.uri);
     }
 
-    // textDocument/diagnostic: pass through to server.
-    // The server registers a pull-based diagnostic provider (Ve class) when
-    // diagnosticCapability is present in initializationOptions, so it handles
-    // this natively. Do NOT short-circuit with an empty response here.
-    // Track which URIs the editor is pulling itself so we don't double-relay.
-    if (msg.method === 'textDocument/diagnostic' && msg.params?.textDocument?.uri) {
-      editorPulledUris.add(msg.params.textDocument.uri);
+    // After initialized, wait for workspace/diagnostic/refresh from the server.
+    // If it doesn't arrive within 10s, fallback to a direct pull.
+    if (msg.method === 'initialized') {
+      const fallback = setTimeout(() => {
+        sendProxyDiagnosticRequests();
+      }, 10000);
+      opts._diagFallbackTimer = fallback;
+    }
+
+    // Also proxy-pull on didChange (debounced) so diagnostics stay fresh.
+    if (msg.method === 'textDocument/didChange') {
+      clearTimeout(diagDebounceTimer);
+      diagDebounceTimer = setTimeout(() => {
+        sendProxyDiagnosticRequests();
+      }, 800);
+    }
+
+    // Convert full-content didChange → incremental for the server.
+    if (msg.method === 'textDocument/didChange' && msg.params?.contentChanges) {
+      const uri = msg.params.textDocument?.uri;
+      const changes = msg.params.contentChanges;
+      const isFullSync = changes.length === 1 && changes[0].range === undefined && changes[0].rangeLength === undefined;
+      if (isFullSync && uri) {
+        const newText = changes[0].text;
+        const prevText = (openDocs.get(uri) || {}).text || '';
+        const lines = prevText.split('\n');
+        const endLine = lines.length - 1;
+        const endChar = lines[endLine].length;
+        msg.params.contentChanges = [{
+          range: { start: { line: 0, character: 0 }, end: { line: endLine, character: endChar } },
+          text: newText,
+        }];
+        if (openDocs.has(uri)) openDocs.get(uri).text = newText;
+      }
+    }
+
+    // textDocument/diagnostic: intercept and serve from cache.
+    // The server returns "unchanged" for editor pulls because it tracks result IDs
+    // per-client. Proxy pulls for itself, caches results, and serves them directly.
+    if (msg.method === 'textDocument/diagnostic' && msg.id !== undefined && msg.params?.textDocument?.uri) {
+      const uri = msg.params.textDocument.uri;
+      const editorPreviousResultId = msg.params.previousResultId || null;
+      if (diagCache.has(uri)) {
+        const cached = diagCache.get(uri);
+        if (editorPreviousResultId && editorPreviousResultId === cached.resultId) {
+          process.stdout.write(encodeLspMessage({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: { kind: 'unchanged', resultId: cached.resultId },
+          }));
+        } else {
+          process.stdout.write(encodeLspMessage({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: { kind: 'full', items: cached.items, resultId: cached.resultId },
+          }));
+        }
+      } else {
+        // No cache yet — queue and wait for proxy pull to populate it.
+        if (!pendingEditorPulls.has(uri)) pendingEditorPulls.set(uri, []);
+        pendingEditorPulls.get(uri).push({ id: msg.id, params: msg.params });
+      }
+      return;
     }
 
     if (msg.method === 'textDocument/inlayHint') {
-      log(`Ignoring textDocument/inlayHint to prevent server crash`);
       if (msg.id) {
-          process.stdout.write(encodeLspMessage({ jsonrpc: '2.0', id: msg.id, result: null }));
+        process.stdout.write(encodeLspMessage({ jsonrpc: '2.0', id: msg.id, result: null }));
       }
       return;
     }
 
     // Custom MLua methods
     if (msg.method === 'mlua/reloadWorkspace') {
-      log('Got custom mlua/reloadWorkspace request');
       try {
         const rootDir = msg.params?.rootDir || opts.currentRootDir || '';
-        const initOptions = indexer.buildInitOptions(installedDir, rootDir);
+        const resolvedRootDir = rootDir ? indexer.resolveProjectRoot(rootDir) : rootDir;
+        const initOptions = indexer.buildInitOptions(installedDir, resolvedRootDir);
         for (const doc of initOptions.documentItems) {
           child.stdin.write(encodeLspMessage({ jsonrpc: '2.0', method: 'textDocument/didOpen', params: { textDocument: doc } }));
         }
@@ -201,7 +274,7 @@ function start(opts) {
         child.stdin.write(encodeLspMessage({ jsonrpc: '2.0', method: 'msw.protocol.refreshDiagnostic', params: {} }));
         child.stdin.write(encodeLspMessage({ jsonrpc: '2.0', method: 'msw.protocol.refreshSemanticTokens', params: {} }));
       } catch (err) {
-        log('mlua/reloadWorkspace failed: ' + err.message);
+        logError('mlua/reloadWorkspace failed: ' + err.message);
       }
       return;
     }
@@ -211,11 +284,8 @@ function start(opts) {
 
   function handleServerMessage(msg) {
     if (!msg) return;
-    log('SERVER MSG: ' + (msg.method || 'id:' + msg.id));
 
-    // Responses to proxy-initiated diagnostic pulls: relay to editor as a
-    // textDocument/publishDiagnostics notification so any editor gets them,
-    // and update previousResultId for incremental pulls.
+    // Responses to proxy-initiated diagnostic pulls: cache and serve.
     if (msg.id !== undefined && proxyDiagIds.has(msg.id)) {
       const uri = proxyDiagIds.get(msg.id);
       proxyDiagIds.delete(msg.id);
@@ -225,11 +295,29 @@ function start(opts) {
         if (result.resultId && openDocs.has(uri)) {
           openDocs.get(uri).previousResultId = result.resultId;
         }
-        // Relay as publishDiagnostics so editors without pull support also benefit.
-        // Skip if the editor already issued its own pull for this URI — it will
-        // receive the result directly, so relaying would cause duplicates.
-        if (result.kind === 'full' && Array.isArray(result.items) && !editorPulledUris.has(uri)) {
-          log('Proxy relaying diagnostics for ' + uri + ' (' + result.items.length + ' items)');
+
+        // Update cache on full result.
+        if (result.kind === 'full' && Array.isArray(result.items)) {
+          const newResultId = 'proxy-' + (++diagCacheSeq);
+          diagCache.set(uri, { items: result.items, resultId: newResultId });
+        }
+
+        // Flush any pending editor pull requests for this URI.
+        if (pendingEditorPulls.has(uri)) {
+          const pending = pendingEditorPulls.get(uri);
+          pendingEditorPulls.delete(uri);
+          const cached = diagCache.has(uri) ? diagCache.get(uri) : { items: [], resultId: 'proxy-' + (++diagCacheSeq) };
+          for (const { id } of pending) {
+            process.stdout.write(encodeLspMessage({
+              jsonrpc: '2.0',
+              id,
+              result: { kind: 'full', items: cached.items, resultId: cached.resultId },
+            }));
+          }
+        }
+
+        // Relay as publishDiagnostics for push-based editors.
+        if (result.kind === 'full' && Array.isArray(result.items)) {
           process.stdout.write(encodeLspMessage({
             jsonrpc: '2.0',
             method: 'textDocument/publishDiagnostics',
@@ -240,39 +328,31 @@ function start(opts) {
       return;
     }
 
-    // workspace/diagnostic/refresh is a server->client REQUEST (has id).
-    // Neovim has no handler for it and replies with MethodNotFound, crashing
-    // the server. Intercept: ack the server, then proxy-pull diagnostics for
-    // all open documents so any editor gets fresh results without needing a
-    // custom handler for this request type.
+    // workspace/diagnostic/refresh: ack the server, proxy-pull all open docs.
     if (msg.method === 'workspace/diagnostic/refresh' && msg.id !== undefined) {
-      log('Intercepting workspace/diagnostic/refresh id:' + msg.id + ', proxy-pulling all open docs');
       child.stdin.write(encodeLspMessage({ jsonrpc: '2.0', id: msg.id, result: null }));
+      if (opts._diagFallbackTimer) { clearTimeout(opts._diagFallbackTimer); opts._diagFallbackTimer = null; }
+      for (const doc of openDocs.values()) doc.previousResultId = null;
       sendProxyDiagnosticRequests();
-      // Also forward as notification so editors with a handler can act on it.
       process.stdout.write(encodeLspMessage({ jsonrpc: '2.0', method: 'workspace/diagnostic/refresh' }));
       return;
     }
 
-    // workspace/semanticTokens/refresh: same issue — Neovim may not handle it as a
-    // request. Ack the server and forward as a notification.
+    // workspace/semanticTokens/refresh: ack and forward as notification.
     if (msg.method === 'workspace/semanticTokens/refresh' && msg.id !== undefined) {
-      log('Intercepting workspace/semanticTokens/refresh request id:' + msg.id + ', acking server and forwarding as notification');
       child.stdin.write(encodeLspMessage({ jsonrpc: '2.0', id: msg.id, result: null }));
       process.stdout.write(encodeLspMessage({ jsonrpc: '2.0', method: 'workspace/semanticTokens/refresh' }));
       return;
     }
 
-    // Server -> Client Translation (dead paths kept for safety)
+    // Server -> Client protocol translation.
     if (msg.method === 'msw.protocol.refreshDiagnostic') {
-      log('Translating msw.protocol.refreshDiagnostic -> workspace/diagnostic/refresh notification');
       msg.method = 'workspace/diagnostic/refresh';
       delete msg.id;
     } else if (msg.method === 'msw.protocol.refreshSemanticTokens') {
-      log('Translating msw.protocol.refreshSemanticTokens -> workspace/semanticTokens/refresh');
       msg.method = 'workspace/semanticTokens/refresh';
     } else if (msg.method === 'msw.protocol.execSpaceDecorationChanged') {
-        msg.method = 'mlua/execSpaceDecorationChanged';
+      msg.method = 'mlua/execSpaceDecorationChanged';
     } else if (msg.method === 'msw.protocol.renameFile') {
       const { uri, newName } = msg.params;
       if (uri && newName) {
@@ -280,7 +360,6 @@ function start(opts) {
         const oldExt = oldPath.endsWith('.d.mlua') ? '.d.mlua' : '.mlua';
         const newPath = path.join(path.dirname(oldPath), newName + oldExt);
         const newUri = 'file://' + (newPath.startsWith('/') ? '' : '/') + newPath.replace(/\\/g, '/');
-        
         msg.method = 'workspace/applyEdit';
         msg.params = {
           edit: {
