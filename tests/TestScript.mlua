@@ -1,0 +1,157 @@
+-- TestScript.mlua
+-- This file is used to manually verify LSP diagnostics and language features.
+-- Expected diagnostics are annotated inline with:
+--   [ERROR]   → should produce an error diagnostic
+--   [WARNING] → should produce a warning diagnostic
+--   [OK]      → should produce no diagnostic
+--
+-- HOW TO TEST each LSP feature:
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Hover            K         → place cursor on a symbol and press K
+--                             e.g. cursor on `_EntityService`, `Vector3`, `EaseType`
+-- Autocompletion   i + <C-x><C-o> or just type `.` / `:` after a known object
+--                             e.g. type `self.` to see property/method completions
+--                             e.g. type `_TimerService:` to see method completions
+-- Go to definition gd        → place cursor on a method/property name and press gd
+--                             e.g. cursor on `GetCount` call, on `Reset` call
+-- Find references  gr        → place cursor on `sharedCount` to see all 3 usages
+-- Rename           <leader>rn → place cursor on `sharedCount` and rename it
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- =============================================================================
+-- 1. Valid script declaration (no diagnostics expected)
+-- =============================================================================
+
+@Logic
+script TestScript extends Logic
+
+	-- 1-1. Valid property declarations
+	property string name = "hello"
+	property number count = 0
+	property boolean isActive = false
+	property any callback = nil
+	property Entity target = "00000000-0000-0000-0000-000000000000"
+
+	-- Hover test target: hover on `sharedCount` anywhere below → should show type info
+	-- References / Rename test target: `sharedCount` is used in 3 places (1-2, 1-3, 1-8)
+	property number sharedCount = 0
+
+	-- 1-2. Valid method: standard logic
+	-- Go to definition test: call site is in 1-8 (CallMethods), definition is here
+	method void Reset()
+		self.count = 0
+		self.sharedCount = 0  -- ref #1 of sharedCount
+		self.isActive = false
+		self.callback = nil
+	end
+
+	-- 1-3. Valid method: return value
+	-- Hover test: hover on `GetCount` → should show signature `method number GetCount()`
+	method number GetCount()
+		return self.sharedCount  -- ref #2 of sharedCount
+	end
+
+	-- 1-4. Valid method: parameters
+	method void SetName(string newName)
+		self.name = newName
+	end
+
+	-- 1-5. Valid ClientOnly method
+	-- Hover test: hover on `_EntityService` → should show type/doc
+	-- Autocompletion test: type `_EntityService:` → should list methods incl. GetEntityByPath
+	@ExecSpace("ClientOnly")
+	method void ShowUI()
+		local entity = _EntityService:GetEntityByPath("/ui/Panel")
+		entity.Enable = true
+	end
+
+	-- 1-6. Valid ServerOnly method
+	@ExecSpace("ServerOnly")
+	method void BroadcastScore(number score)
+		_UtilLogic:Log("score: " .. tostring(score))
+	end
+
+	-- 1-7. Valid handler with ExecSpace and EventSender
+	@ExecSpace("ClientOnly")
+	@EventSender("Entity", "00000000-0000-0000-0000-000000000001")
+	handler HandleClick(ButtonClickEvent event)
+		local entity = event.Entity
+		entity.Enable = false
+	end
+
+	-- 1-8. Valid use of timer
+	-- Go to definition test: `self:Reset()` → gd should jump to Reset definition above
+	-- Go to definition test: `self:GetCount()` → gd should jump to GetCount definition above
+	method void StartTimer()
+		self:Reset()
+		local current = self:GetCount()
+		self.sharedCount = current + 1  -- ref #3 of sharedCount
+		local id = _TimerService:SetTimerRepeat(function()
+			self.count = self.count + 1
+		end, 1/60)
+		self.count = id
+	end
+
+	-- 1-9. Valid use of tween
+	-- Hover test: hover on `EaseType` → should show enum doc
+	-- Hover test: hover on `SineEaseIn` → should show enum member doc
+	-- Autocompletion test: type `EaseType.` → should list enum members
+	@ExecSpace("ClientOnly")
+	method void Animate(Entity target)
+		local transform = target.UITransformComponent
+		local tweenValue = _TweenLogic:Ease(0, 1, 0.3, EaseType.SineEaseIn, 0.5)
+		transform.UIScale = Vector3(tweenValue, tweenValue, 1)
+	end
+
+	-- 1-10. Valid control flow
+	method string Classify(number n)
+		if n > 0 then
+			return "positive"
+		elseif n < 0 then
+			return "negative"
+		else
+			return "zero"
+		end
+	end
+
+	-- 1-11. Valid use of math / string builtins
+	-- Autocompletion test: type `math.` → should list math functions
+	-- Autocompletion test: type `string.` → should list string functions
+	method void MathAndString()
+		local x = math.max(1, math.min(10, self.count))
+		local s = string.format("count=%d", x)
+		_UtilLogic:Log(s)
+	end
+
+-- =============================================================================
+-- 2. Diagnostics expected
+-- =============================================================================
+
+	-- 2-1. [ERROR] Calling undefined global
+	method void UseUndefinedGlobal()
+		local x = _NonExistentService:DoSomething() -- [ERROR] unknown identifier
+	end
+
+	-- 2-2. [ERROR] Wrong number of arguments (if LSP checks arity)
+	method void WrongArgs()
+		local v = Vector3(1, 2) -- [ERROR] Vector3 expects 3 arguments
+	end
+
+	-- 2-3. [WARNING] Unused local variable
+	method void UnusedLocal()
+		local unused = 42 -- [WARNING] unused variable
+		self.count = self.count + 1
+	end
+
+	-- 2-4. [ERROR] Type mismatch: assigning string to number property
+	method void TypeMismatch()
+		self.count = "not a number" -- [ERROR] type mismatch
+	end
+
+	-- 2-5. [ERROR] Accessing field on nil
+	method void NilAccess()
+		local x = nil
+		local y = x.SomeField -- [ERROR] attempt to index nil
+	end
+
+end
