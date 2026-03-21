@@ -74,6 +74,7 @@ function start(opts) {
   });
 
   let initialized = false;
+  let clientSupportsPull = false;
 
   // Track open documents: uri -> { languageId, version, previousResultId, text }
   const openDocs = new Map();
@@ -125,6 +126,14 @@ function start(opts) {
 
       // Resolve the actual mLua project root (walks up to find RootDesk + Environment).
       const resolvedRootDir = rootDir ? indexer.resolveProjectRoot(rootDir) : rootDir;
+
+      // Detect if the client natively supports pull diagnostics.
+      if (msg.params && msg.params.capabilities) {
+        clientSupportsPull = !!(
+          msg.params.capabilities.textDocument &&
+          msg.params.capabilities.textDocument.diagnostic
+        );
+      }
 
       // Inject textDocument.diagnostic capability so the server activates its
       // pull diagnostic provider — required for workspace/diagnostic/refresh
@@ -316,8 +325,10 @@ function start(opts) {
           }
         }
 
-        // Relay as publishDiagnostics for push-based editors.
-        if (result.kind === 'full' && Array.isArray(result.items)) {
+
+        // Relay as publishDiagnostics for push-only editors (pull-capable clients
+        // receive diagnostics via textDocument/diagnostic responses above).
+        if (!clientSupportsPull && result.kind === 'full' && Array.isArray(result.items)) {
           process.stdout.write(encodeLspMessage({
             jsonrpc: '2.0',
             method: 'textDocument/publishDiagnostics',
