@@ -261,13 +261,6 @@ function start(opts) {
       return;
     }
 
-    if (msg.method === 'textDocument/inlayHint') {
-      if (msg.id) {
-        process.stdout.write(encodeLspMessage({ jsonrpc: '2.0', id: msg.id, result: null }));
-      }
-      return;
-    }
-
     // Custom MLua methods
     if (msg.method === 'mlua/reloadWorkspace') {
       try {
