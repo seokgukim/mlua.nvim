@@ -219,6 +219,13 @@ test("lsp.get_installed_version is a function", function()
 	assert_eq(type(lsp.get_installed_version), "function")
 end)
 
+test("proxy forwards inlay hints for override virtual text", function()
+	local proxy_path = vim.fn.fnamemodify("javascript/proxy.js", ":p")
+	local lines = vim.fn.readfile(proxy_path)
+	local source = table.concat(lines, "\n")
+	assert_truthy(source:match("textDocument/inlayHint") == nil, "proxy must not suppress textDocument/inlayHint")
+end)
+
 -- ---------------------------------------------------------------------------
 -- Suite 7: TestScript.mlua — file can be opened as mlua filetype
 -- ---------------------------------------------------------------------------

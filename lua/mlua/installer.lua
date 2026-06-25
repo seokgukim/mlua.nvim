@@ -80,7 +80,7 @@ end
 ---@return boolean success
 ---@return string|nil extract_dir  Directory where the extension was extracted
 function M.download(version)
-	version = M.get_latest_version() or "1.1.4"
+	version = version or M.get_latest_version() or "1.1.6"
 
 	if not version then
 		vim.notify("Error: Could not fetch version", vim.log.levels.ERROR)

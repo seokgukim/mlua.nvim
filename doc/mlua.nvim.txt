@@ -26,6 +26,7 @@ section for details.
 
 Features:
   • LSP integration for autocomplete, diagnostics, and navigation
+  • Override inlay hints for properties/methods inherited from extended scripts
   • Tree-sitter support for advanced syntax highlighting
   • Fallback Vim syntax highlighting
   • Automatic .mlua file detection

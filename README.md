@@ -24,6 +24,7 @@ For more information, see the `./doc/mlua.nvim.txt` file.
 - 🔍 **LSP Integration** - Language server support with autocomplete, go-to-definition, hover, etc.
 - 📂 **Full Workspace Loading** - VS Code-style workspace initialization with all files loaded at startup
 - 👁️ **ExecSpace Decorations** - Virtual text showing Client/Server/Multicast execution context
+- 🧩 **Override Hints** - Inlay-hint virtual text marks properties and methods that override extended scripts
 - 📝 **File Watching** - Automatic notifications to LSP when files are created/deleted/modified
 - 🌳 **Tree-sitter Support** - Syntax highlighting via Tree-sitter parser
 - 📝 **Syntax Highlighting** - Fallback Vim syntax when Tree-sitter is unavailable
@@ -170,6 +171,7 @@ msw.mlua VS Code extension  ← actual language server
 2. **Disk cache**: Index results are cached by snapshot (file count + size + mtime), so restarts are near-instant on unchanged projects
 3. **File watching**: `watcher.js` monitors `.mlua` and `.ent` files and triggers re-diagnostics on change
 4. **Diagnostic pull/push**: The proxy detects whether the client supports pull diagnostics (`textDocument/diagnostic`) and skips the redundant `textDocument/publishDiagnostics` push for pull-capable clients (Neovim 0.10+), preventing double rendering
+5. **Inlay hints**: The proxy forwards `textDocument/inlayHint` to the base mLua server so override virtual text for extended-script properties and methods is rendered by Neovim
 
 ### Custom LSP on_attach
 
