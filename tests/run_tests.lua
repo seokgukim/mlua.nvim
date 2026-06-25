@@ -226,6 +226,56 @@ test("proxy forwards inlay hints for override virtual text", function()
 	assert_truthy(source:match("textDocument/inlayHint") == nil, "proxy must not suppress textDocument/inlayHint")
 end)
 
+test("indexer includes all .mlua and excludes other filetypes", function()
+	local script = [[
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const indexer = require('./javascript/indexer.js');
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mlua-indexer-test-'));
+try {
+  fs.writeFileSync(path.join(root, 'Script.mlua'), '-- script\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'Script.d.mlua'), '-- meta\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'Layout.ui'), '{}\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'World.map'), '{}\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'Thing.model'), '{}\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'Logic.codeblock'), '{}\n', 'utf8');
+  fs.mkdirSync(path.join(root, 'Environment'));
+  fs.writeFileSync(path.join(root, 'Environment', 'BasicLib.d.mlua'), '-- lib\n', 'utf8');
+  fs.mkdirSync(path.join(root, 'nested'));
+  fs.writeFileSync(path.join(root, 'nested', 'Nested.mlua'), '-- nested\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'nested', 'Nested.d.mlua'), '-- nested meta\n', 'utf8');
+  if (!indexer.isIndexableScriptFile(path.join(root, 'Script.mlua'))) {
+    throw new Error('Script.mlua should be indexable');
+  }
+  if (!indexer.isIndexableScriptFile(path.join(root, 'Script.d.mlua'))) {
+    throw new Error('Script.d.mlua should be indexable');
+  }
+  if (!indexer.isIndexableScriptFile(path.join(root, 'Environment', 'BasicLib.d.mlua'))) {
+    throw new Error('Environment/BasicLib.d.mlua should be indexable');
+  }
+  const docs = indexer.collectDocuments(root);
+  const uris = docs.map((doc) => doc.uri).sort();
+  if (uris.length !== 5) {
+    throw new Error('expected 5 indexed documents, got ' + uris.length + ': ' + uris.join(','));
+  }
+  for (const expected of ['Script.mlua', 'Script.d.mlua', 'nested/Nested.mlua', 'nested/Nested.d.mlua', 'Environment/BasicLib.d.mlua']) {
+    if (!uris.some((uri) => uri.endsWith(expected))) {
+      throw new Error(expected + ' was not indexed: ' + uris.join(','));
+    }
+  }
+  const entries = indexer.collectEntryItems(root);
+  if (entries.length !== 0) {
+    throw new Error('unused meta entry files should not be indexed, got ' + entries.length);
+  }
+} finally {
+  fs.rmSync(root, { recursive: true, force: true });
+}
+]]
+	local result = vim.system({ "node", "-e", script }, { cwd = vim.fn.getcwd(), text = true }):wait()
+	assert_eq(result.code, 0, result.stderr ~= "" and result.stderr or result.stdout)
+end)
+
 -- ---------------------------------------------------------------------------
 -- Suite 7: TestScript.mlua — file can be opened as mlua filetype
 -- ---------------------------------------------------------------------------

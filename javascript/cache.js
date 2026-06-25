@@ -14,7 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 6;
 
 /**
  * Resolve the shared cache directory under javascript/cache/.

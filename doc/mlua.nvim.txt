@@ -124,7 +124,6 @@ setup({opts})
         {cmd}         (table)   LSP command (auto-detected if nil)
         {capabilities}(table)   LSP capabilities (uses nvim-cmp if available)
         {on_attach}   (function) Custom on_attach callback
-
       {treesitter}  (table)   Tree-sitter configuration
         {enabled}     (boolean) Enable Tree-sitter (default: true)
         {parser_path} (string)  Path to tree-sitter-mlua repo
