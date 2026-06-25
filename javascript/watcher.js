@@ -2,13 +2,12 @@
 
 const fs = require('fs');
 const path = require('path');
+const { isIndexableScriptFile } = require('./indexer.js');
 
 function setupWatcher(rootDir, onFileChange, installedDir) {
   if (!rootDir) return null;
 
   // Normalize installedDir so we can exclude it from change events.
-  // The installed extension (msw.mlua-*/) lives inside javascript/ and contains
-  // thousands of .d.mlua definition files — we must not react to changes there.
   const normalizedInstalledDir = installedDir
     ? path.resolve(installedDir).replace(/\\/g, '/') + '/'
     : null;
@@ -23,7 +22,7 @@ function setupWatcher(rootDir, onFileChange, installedDir) {
     // Skip files inside the installed extension directory.
     if (normalizedInstalledDir && fullPath.startsWith(normalizedInstalledDir)) return;
 
-    if (filename.endsWith('.mlua') || filename.endsWith('.ent')) {
+    if ((filename.endsWith('.mlua') && isIndexableScriptFile(fullPath)) || filename.endsWith('.ent')) {
       onFileChange(eventType, fullPath);
     }
   });

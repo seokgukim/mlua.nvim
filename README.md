@@ -167,8 +167,8 @@ javascript/watcher.js       ← fs.watch for .mlua / .ent files
 msw.mlua VS Code extension  ← actual language server
 ```
 
-1. **On project open**: `indexer.js` scans all `.mlua` files and injects them into `initializationOptions` — no extra round-trips needed
-2. **Disk cache**: Index results are cached by snapshot (file count + size + mtime), so restarts are near-instant on unchanged projects
+1. **On project open**: `indexer.js` scans all `.mlua` files under the project root, including `.d.mlua`, and injects them into `initializationOptions` — no extra round-trips needed. Other filetypes such as `.map`, `.ui`, `.model`, and `.codeblock` are skipped to avoid excessive indexing.
+2. **Disk cache**: Index results are cached by snapshot (file count + size + mtime), so restarts are near-instant on unchanged projects. The cache schema is bumped when indexing rules change.
 3. **File watching**: `watcher.js` monitors `.mlua` and `.ent` files and triggers re-diagnostics on change
 4. **Diagnostic pull/push**: The proxy detects whether the client supports pull diagnostics (`textDocument/diagnostic`) and skips the redundant `textDocument/publishDiagnostics` push for pull-capable clients (Neovim 0.10+), preventing double rendering
 5. **Inlay hints**: The proxy forwards `textDocument/inlayHint` to the base mLua server so override virtual text for extended-script properties and methods is rendered by Neovim
@@ -345,7 +345,7 @@ mlua.nvim/
 
 ### Full Workspace Loading
 
-When you open a project, all `.mlua` files are indexed and injected into the language server at startup via `initializationOptions`. This matches VS Code's behavior and provides complete IntelliSense from the start. On large projects the initial scan may take a moment, but subsequent restarts are near-instant thanks to the disk cache.
+When you open a project, all `.mlua` files under the project root are indexed and injected into the language server at startup via `initializationOptions`, including `.d.mlua` definitions. Other filetypes such as `.map`, `.ui`, `.model`, and `.codeblock` are skipped because injecting those files creates excessive indexing without helping script language features. On large projects the initial scan may take a moment, but subsequent restarts are near-instant thanks to the disk cache.
 
 ### Window Compatibility
 

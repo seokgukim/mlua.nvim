@@ -19,7 +19,7 @@ const cache = require('./cache.js');
  * Uses only fs.readdirSync — no external dependencies.
  *
  * @param {string} dir
- * @param {Set<string>} exts  — e.g. new Set(['.map', '.ui', '.model', '.collisiongroupset'])
+ * @param {Set<string>} exts
  * @param {string[]} [results]
  * @returns {string[]}
  */
@@ -109,7 +109,7 @@ function resolveProjectRoot(dir) {
 // Entry parsing  (mirrors lua/mlua/entries.lua)
 // ---------------------------------------------------------------------------
 
-const ENTRY_EXTS = new Set(['.map', '.ui', '.model', '.collisiongroupset']);
+const ENTRY_EXTS = new Set();
 
 /** @param {object|null} json_components */
 function parseComponentItems(json_components) {
@@ -234,6 +234,8 @@ function parseEntryFile(filePath) {
  * @returns {object[]}  EntryItem[]
  */
 function collectEntryItems(rootDir) {
+  if (ENTRY_EXTS.size === 0) return [];
+
   const filePaths = globSync(rootDir, ENTRY_EXTS);
 
   const hit = cache.loadEntryItems(rootDir, filePaths);
@@ -292,13 +294,25 @@ function collectPredefines(installedDir) {
 const MLUA_EXTS = new Set(['.mlua']);
 
 /**
+ * Determine whether a file should be injected as a workspace document.
+ *
+ * @param {string} filePath
+ * @returns {boolean}
+ */
+function isIndexableScriptFile(filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/');
+  const base = path.basename(normalized);
+  return base.endsWith('.mlua');
+}
+
+/**
  * Collect all .mlua document items for rootDir, using disk cache when valid.
  *
  * @param {string} rootDir
  * @returns {object[]}  DocumentItem[]  { uri, languageId, version, text }
  */
 function collectDocuments(rootDir) {
-  const filePaths = globSync(rootDir, MLUA_EXTS);
+  const filePaths = globSync(rootDir, MLUA_EXTS).filter(isIndexableScriptFile);
 
   const hit = cache.loadDocuments(rootDir, filePaths);
   if (hit) return hit.items;
@@ -443,6 +457,7 @@ module.exports = {
   collectPredefines,
   collectDocuments,
   buildInitOptions,
+  isIndexableScriptFile,
   parseEntryFile,
   resolveProjectRoot,
 };
